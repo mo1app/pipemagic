@@ -8,7 +8,7 @@ export class PipeMagic {
 
   async run(
     pipeline: PipelineDefinition,
-    inputImage: Blob | File | ImageBitmap,
+    inputImage: Blob | File | ImageBitmap | Record<string, Blob | File | ImageBitmap>,
     options: RunOptions = {},
   ): Promise<RunResult> {
     // Init GPU once
@@ -17,22 +17,30 @@ export class PipeMagic {
       this.gpuInitialized = true
     }
 
-    // Convert input to ImageBitmap if needed
-    let bitmap: ImageBitmap
-    if (inputImage instanceof ImageBitmap) {
-      bitmap = inputImage
+    // Convert input(s) to ImageBitmap
+    if (inputImage instanceof Blob || inputImage instanceof File || inputImage instanceof ImageBitmap) {
+      // Single input (backward-compat)
+      const bitmap = inputImage instanceof ImageBitmap
+        ? inputImage
+        : await createImageBitmap(inputImage)
+      return runPipeline(pipeline, bitmap, getGpuDevice(), options)
     } else {
-      bitmap = await createImageBitmap(inputImage)
+      // Multi-input: Record<string, Blob | File | ImageBitmap>
+      const bitmapMap = new Map<string, ImageBitmap>()
+      for (const [key, value] of Object.entries(inputImage)) {
+        const bitmap = value instanceof ImageBitmap
+          ? value
+          : await createImageBitmap(value)
+        bitmapMap.set(key, bitmap)
+      }
+      return runPipeline(pipeline, bitmapMap, getGpuDevice(), options)
     }
-
-    return runPipeline(pipeline, bitmap, getGpuDevice(), options)
   }
 }
 
 // Re-export everything consumers might need
-export { runPipeline } from './runner'
-export type { RunOptions, RunResult } from './runner'
-export type { NodeExecutor } from './runner'
+export { runPipeline, registerExecutor } from './runner'
+export type { RunOptions, RunResult, OutputEntry, NodeExecutor, LegacyNodeExecutor } from './runner'
 
 export { initGpu, getGpuDevice } from './utils/gpu'
 
@@ -40,6 +48,7 @@ export type {
   ImageFrame,
   NodeStatus,
   NodeState,
+  NodeOutput,
   ExecutionContext,
   NodeType,
   NodePosition,
@@ -54,15 +63,22 @@ export type {
   OutlineParams,
   DepthParams,
   FaceParseParams,
+  SpritesheetParams,
   NodeParamsMap,
+  HandleDataType,
+  HandleDef,
 } from './types'
 export { createDefaultNodeState, DEFAULT_PARAMS } from './types'
+
+export { getHandleDefs } from './registry'
+export type { NodeHandleDefs } from './registry'
 
 export {
   topoSort,
   hasCycle,
   validatePipeline,
   getUpstreamNodes,
+  getUpstreamEdges,
   getDownstreamNodes,
 } from './utils/graph'
 export type { ValidationError } from './utils/graph'
@@ -91,3 +107,5 @@ export { executeUpscale } from './executors/upscale'
 export { executeOutline } from './executors/outline'
 export { executeDepth } from './executors/depth'
 export { executeFaceParse } from './executors/face-parse'
+export { executeSpritesheet } from './executors/spritesheet'
+export type { SpritesheetData, SpritesheetFrame } from './executors/spritesheet'

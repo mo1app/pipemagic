@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { Handle, Position } from '@vue-flow/core'
 import { usePipelineStore } from '~/stores/pipeline'
+import { getHandleDefs } from 'pipemagic'
+import type { NodeType } from '~~/shared/types/pipeline'
 
 const props = defineProps<{
   id: string
   label: string
-  hasInput?: boolean
-  hasOutput?: boolean
+  nodeType: NodeType
   hidePreview?: boolean
   color?: string
   icon?: Component
@@ -14,6 +15,15 @@ const props = defineProps<{
 
 const store = usePipelineStore()
 const state = computed(() => store.getNodeState(props.id))
+
+const handleDefs = computed(() => getHandleDefs(props.nodeType))
+const targetHandles = computed(() => handleDefs.value.targets)
+const sourceHandles = computed(() => handleDefs.value.sources)
+
+function handlePosition(index: number, total: number): string {
+  if (total === 1) return '50%'
+  return `${((index + 1) / (total + 1)) * 100}%`
+}
 
 const statusColor = computed(() => {
   switch (state.value.status) {
@@ -43,12 +53,12 @@ const borderColor = computed(() => {
 // Output preview thumbnail
 const previewUrl = ref<string | null>(null)
 
-watch(() => state.value.output, async (output) => {
+watch(() => state.value.output?.asset, async (asset) => {
   if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
-  if (output?.bitmap) {
-    const canvas = new OffscreenCanvas(output.bitmap.width, output.bitmap.height)
+  if (asset?.bitmap) {
+    const canvas = new OffscreenCanvas(asset.bitmap.width, asset.bitmap.height)
     const ctx = canvas.getContext('2d')!
-    ctx.drawImage(output.bitmap, 0, 0)
+    ctx.drawImage(asset.bitmap, 0, 0)
     const blob = await canvas.convertToBlob({ type: 'image/png' })
     previewUrl.value = URL.createObjectURL(blob)
   } else {
@@ -130,19 +140,59 @@ onUnmounted(() => {
       />
     </div>
 
-    <!-- Handles -->
+    <!-- Target handles (left side) -->
     <Handle
-      v-if="hasInput"
-      id="input"
+      v-for="(handle, idx) in targetHandles"
+      :key="handle.id"
+      :id="handle.id"
       type="target"
       :position="Position.Left"
+      :style="{
+        top: handlePosition(idx, targetHandles.length),
+        borderRadius: handle.dataType === 'data' ? '2px' : '50%',
+        background: handle.dataType === 'data' ? '#f59e0b' : undefined,
+        transform: handle.dataType === 'data' ? 'translate(-50%, -50%) rotate(45deg)' : undefined,
+        width: handle.dataType === 'data' ? '8px' : undefined,
+        height: handle.dataType === 'data' ? '8px' : undefined,
+      }"
     />
+
+    <!-- Source handles (right side) -->
     <Handle
-      v-if="hasOutput"
-      id="output"
+      v-for="(handle, idx) in sourceHandles"
+      :key="handle.id"
+      :id="handle.id"
       type="source"
       :position="Position.Right"
+      :style="{
+        top: handlePosition(idx, sourceHandles.length),
+        borderRadius: handle.dataType === 'data' ? '2px' : '50%',
+        background: handle.dataType === 'data' ? '#f59e0b' : undefined,
+        transform: handle.dataType === 'data' ? 'translate(50%, -50%) rotate(45deg)' : undefined,
+        width: handle.dataType === 'data' ? '8px' : undefined,
+        height: handle.dataType === 'data' ? '8px' : undefined,
+      }"
     />
+
+    <!-- Handle labels (only shown when >1 handle on a side) -->
+    <template v-if="targetHandles.length > 1">
+      <template v-for="(handle, idx) in targetHandles" :key="'label-t-' + handle.id">
+        <span
+          v-if="handle.label"
+          class="absolute text-[8px] text-gray-500 pointer-events-none"
+          :style="{ left: '14px', top: handlePosition(idx, targetHandles.length), transform: 'translateY(-50%)' }"
+        >{{ handle.label }}</span>
+      </template>
+    </template>
+    <template v-if="sourceHandles.length > 1">
+      <template v-for="(handle, idx) in sourceHandles" :key="'label-s-' + handle.id">
+        <span
+          v-if="handle.label"
+          class="absolute text-[8px] text-gray-500 pointer-events-none"
+          :style="{ right: '14px', top: handlePosition(idx, sourceHandles.length), transform: 'translateY(-50%)', textAlign: 'right' }"
+        >{{ handle.label }}</span>
+      </template>
+    </template>
   </div>
 </template>
 

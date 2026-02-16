@@ -11,7 +11,9 @@ import { markRaw } from "vue";
 import { nanoid } from "nanoid";
 import { useElementSize } from "@vueuse/core";
 import { usePipelineStore } from "~/stores/pipeline";
+import { getHandleDefs } from "pipemagic";
 import type { NodeType } from "~~/shared/types/pipeline";
+import type { Connection } from "@vue-flow/core";
 
 import InputNode from "~/components/nodes/InputNode.vue";
 import OutputNode from "~/components/nodes/OutputNode.vue";
@@ -21,6 +23,7 @@ import NormalizeNode from "~/components/nodes/NormalizeNode.vue";
 import OutlineNode from "~/components/nodes/OutlineNode.vue";
 import DepthNode from "~/components/nodes/DepthNode.vue";
 import FaceParseNode from "~/components/nodes/FaceParseNode.vue";
+import SpritesheetNode from "~/components/nodes/SpritesheetNode.vue";
 
 const nodeTypes = {
   input: markRaw(InputNode),
@@ -31,6 +34,7 @@ const nodeTypes = {
   outline: markRaw(OutlineNode),
   depth: markRaw(DepthNode),
   "face-parse": markRaw(FaceParseNode),
+  spritesheet: markRaw(SpritesheetNode),
 };
 
 const store = usePipelineStore();
@@ -59,6 +63,7 @@ const {
   onEdgeUpdate,
   onEdgeUpdateEnd,
   onMoveStart,
+  addEdges,
   project,
   setCenter,
   getViewport,
@@ -81,13 +86,27 @@ onPaneClick(() => {
 
 // Handle new connections
 onConnect((connection) => {
-  store.edges.push({
-    id: nanoid(8),
-    source: connection.source,
-    sourceHandle: connection.sourceHandle || "output",
-    target: connection.target,
-    targetHandle: connection.targetHandle || "input",
-  } as any);
+  if (!connection.source || !connection.target) return;
+  // Prevent duplicate connections to the same non-multi target handle
+  const targetHandleId = connection.targetHandle || "asset";
+  const exists = store.edges.some(
+    (e: any) =>
+      e.source === connection.source &&
+      e.sourceHandle === (connection.sourceHandle || "asset") &&
+      e.target === connection.target &&
+      e.targetHandle === targetHandleId,
+  );
+  if (exists) return;
+
+  addEdges([
+    {
+      id: nanoid(8),
+      source: connection.source,
+      sourceHandle: connection.sourceHandle || "asset",
+      target: connection.target,
+      targetHandle: connection.targetHandle || "asset",
+    },
+  ]);
   store.isDirty = true;
 });
 
@@ -131,9 +150,9 @@ onEdgeUpdate(({ edge, connection }) => {
   store.edges.push({
     id: nanoid(8),
     source: connection.source,
-    sourceHandle: connection.sourceHandle || "output",
+    sourceHandle: connection.sourceHandle || "asset",
     target: connection.target,
-    targetHandle: connection.targetHandle || "input",
+    targetHandle: connection.targetHandle || "asset",
   } as any);
   store.isDirty = true;
 });
@@ -144,6 +163,36 @@ onEdgeUpdateEnd(({ edge }) => {
   }
 });
 
+// Connection validation: check data type compatibility
+function isValidConnection(connection: Connection) {
+  const sourceNode = store.nodes.find((n: any) => n.id === connection.source);
+  const targetNode = store.nodes.find((n: any) => n.id === connection.target);
+  if (!sourceNode || !targetNode) return false;
+
+  const sourceDefs = getHandleDefs(sourceNode.type as NodeType);
+  const targetDefs = getHandleDefs(targetNode.type as NodeType);
+
+  const sourceHandle = sourceDefs.sources.find(
+    (h) => h.id === (connection.sourceHandle || "asset"),
+  );
+  const targetHandle = targetDefs.targets.find(
+    (h) => h.id === (connection.targetHandle || "asset"),
+  );
+
+  if (!sourceHandle || !targetHandle) return false;
+  if (sourceHandle.dataType !== targetHandle.dataType) return false;
+
+  // Block multiple connections to the same non-multi target handle
+  if (!targetHandle.multi) {
+    const targetHandleId = connection.targetHandle || "asset";
+    const alreadyConnected = store.edges.some(
+      (e: any) => e.target === connection.target && e.targetHandle === targetHandleId,
+    );
+    if (alreadyConnected) return false;
+  }
+
+  return true;
+}
 // Context menu for adding nodes
 const contextMenu = ref<{ x: number; y: number; show: boolean }>({
   x: 0,
@@ -152,12 +201,15 @@ const contextMenu = ref<{ x: number; y: number; show: boolean }>({
 });
 
 const addableNodes: { type: NodeType; label: string }[] = [
+  { type: "input", label: "Image Input" },
+  { type: "output", label: "Output" },
   { type: "remove-bg", label: "Remove BG" },
   { type: "normalize", label: "Normalize" },
   { type: "outline", label: "Outline" },
   { type: "upscale", label: "Upscale 2x" },
   { type: "depth", label: "Estimate Depth" },
   { type: "face-parse", label: "Face Parse" },
+  { type: "spritesheet", label: "Spritesheet" },
 ];
 
 function onPaneContextMenu(event: MouseEvent) {
@@ -231,6 +283,7 @@ watch(
       :max-zoom="2"
       :edges-updatable="true"
       :delete-key-code="null"
+      :is-valid-connection="isValidConnection"
       fit-view-on-init
       @pane-contextmenu="onPaneContextMenu"
     >

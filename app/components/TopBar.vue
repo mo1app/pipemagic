@@ -5,6 +5,7 @@ import {
   FolderOpenIcon,
   ArrowDownTrayIcon,
   DocumentDuplicateIcon,
+  PhotoIcon,
   ScissorsIcon,
   ArrowsPointingInIcon,
   ArrowsPointingOutIcon,
@@ -12,6 +13,7 @@ import {
   SparklesIcon,
   EyeIcon,
   UserIcon,
+  Squares2X2Icon,
 } from "@heroicons/vue/20/solid";
 import type { NodeType } from "~~/shared/types/pipeline";
 import { usePipelineStore } from "~/stores/pipeline";
@@ -130,37 +132,37 @@ function buildStickerPreset(): PipelineDefinition {
       {
         id: nanoid(8),
         source: inputId,
-        sourceHandle: "output",
+        sourceHandle: "asset",
         target: removeBgId,
-        targetHandle: "input",
+        targetHandle: "asset",
       },
       {
         id: nanoid(8),
         source: removeBgId,
-        sourceHandle: "output",
+        sourceHandle: "asset",
         target: normalizeId,
-        targetHandle: "input",
+        targetHandle: "asset",
       },
       {
         id: nanoid(8),
         source: normalizeId,
-        sourceHandle: "output",
+        sourceHandle: "asset",
         target: outlineId,
-        targetHandle: "input",
+        targetHandle: "asset",
       },
       {
         id: nanoid(8),
         source: outlineId,
-        sourceHandle: "output",
+        sourceHandle: "asset",
         target: upscaleId,
-        targetHandle: "input",
+        targetHandle: "asset",
       },
       {
         id: nanoid(8),
         source: upscaleId,
-        sourceHandle: "output",
+        sourceHandle: "asset",
         target: outputId,
-        targetHandle: "input",
+        targetHandle: "asset",
       },
     ],
   };
@@ -233,16 +235,16 @@ function buildDepthMapPreset(): PipelineDefinition {
       {
         id: nanoid(8),
         source: inputId,
-        sourceHandle: "output",
+        sourceHandle: "asset",
         target: depthId,
-        targetHandle: "input",
+        targetHandle: "asset",
       },
       {
         id: nanoid(8),
         source: depthId,
-        sourceHandle: "output",
+        sourceHandle: "asset",
         target: outputId,
-        targetHandle: "input",
+        targetHandle: "asset",
       },
     ],
   };
@@ -274,6 +276,17 @@ function addNodeAtCenter(type: NodeType) {
 
 const addNodeItems = computed<MenuItem[]>(() => [
   {
+    label: "Image Input",
+    icon: PhotoIcon,
+    action: () => addNodeAtCenter("input"),
+  },
+  {
+    label: "Output",
+    icon: ArrowDownTrayIcon,
+    action: () => addNodeAtCenter("output"),
+  },
+  { separator: true, label: "" },
+  {
     label: "Remove BG",
     icon: ScissorsIcon,
     action: () => addNodeAtCenter("remove-bg"),
@@ -302,6 +315,11 @@ const addNodeItems = computed<MenuItem[]>(() => [
     label: "Face Parse",
     icon: UserIcon,
     action: () => addNodeAtCenter("face-parse"),
+  },
+  {
+    label: "Spritesheet",
+    icon: Squares2X2Icon,
+    action: () => addNodeAtCenter("spritesheet"),
   },
 ]);
 

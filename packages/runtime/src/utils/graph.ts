@@ -1,4 +1,5 @@
-import type { NodeDef, EdgeDef } from '../types/pipeline'
+import type { NodeDef, EdgeDef, NodeType } from '../types/pipeline'
+import { getHandleDefs } from '../registry'
 
 export interface ValidationError {
   nodeId?: string
@@ -76,6 +77,7 @@ export function validatePipeline(nodes: NodeDef[], edges: EdgeDef[]): Validation
   // Check for disconnected processing nodes
   const targetIds = new Set(edges.map(e => e.target))
   const sourceIds = new Set(edges.map(e => e.source))
+  const nodeMap = new Map(nodes.map(n => [n.id, n]))
 
   for (const node of nodes) {
     if (node.type === 'input' && !sourceIds.has(node.id)) {
@@ -94,12 +96,57 @@ export function validatePipeline(nodes: NodeDef[], edges: EdgeDef[]): Validation
     }
   }
 
+  // Check handle data type compatibility
+  for (const edge of edges) {
+    const srcNode = nodeMap.get(edge.source)
+    const tgtNode = nodeMap.get(edge.target)
+    if (!srcNode || !tgtNode) continue
+
+    const srcDefs = getHandleDefs(srcNode.type as NodeType)
+    const tgtDefs = getHandleDefs(tgtNode.type as NodeType)
+
+    const srcHandle = srcDefs.sources.find(h => h.id === edge.sourceHandle)
+    const tgtHandle = tgtDefs.targets.find(h => h.id === edge.targetHandle)
+
+    if (srcHandle && tgtHandle && srcHandle.dataType !== tgtHandle.dataType) {
+      errors.push({
+        message: `Incompatible connection: ${srcNode.type}.${edge.sourceHandle} (${srcHandle.dataType}) → ${tgtNode.type}.${edge.targetHandle} (${tgtHandle.dataType})`,
+      })
+    }
+  }
+
+  // Check multi-connection constraints: non-multi target handles should have at most 1 connection
+  const targetHandleCount = new Map<string, number>()
+  for (const edge of edges) {
+    const key = `${edge.target}:${edge.targetHandle}`
+    targetHandleCount.set(key, (targetHandleCount.get(key) || 0) + 1)
+  }
+  for (const [key, count] of targetHandleCount) {
+    if (count <= 1) continue
+    const [nodeId, handleId] = key.split(':')
+    const node = nodeMap.get(nodeId)
+    if (!node) continue
+    const defs = getHandleDefs(node.type as NodeType)
+    const handleDef = defs.targets.find(h => h.id === handleId)
+    if (handleDef && !handleDef.multi) {
+      errors.push({
+        nodeId,
+        message: `Handle "${handleId}" on node "${nodeId}" does not accept multiple connections`,
+      })
+    }
+  }
+
   return errors
 }
 
 /** Get upstream node IDs for a given node. */
 export function getUpstreamNodes(nodeId: string, edges: EdgeDef[]): string[] {
   return edges.filter(e => e.target === nodeId).map(e => e.source)
+}
+
+/** Get all edges targeting a given node. */
+export function getUpstreamEdges(nodeId: string, edges: EdgeDef[]): EdgeDef[] {
+  return edges.filter(e => e.target === nodeId)
 }
 
 /** Get all downstream node IDs (transitive) for a given node. */

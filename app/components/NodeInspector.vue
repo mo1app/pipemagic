@@ -14,10 +14,10 @@ const nodeType = computed(() => node.value?.type as NodeType | undefined)
 const previewUrl = ref<string | null>(null)
 const isZoomed = ref(false)
 
-watch(() => state.value?.output, async (output) => {
+watch(() => state.value?.output?.asset, async (asset) => {
   if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
-  if (output?.bitmap) {
-    const blob = await bitmapToBlob(output.bitmap, 'png')
+  if (asset?.bitmap) {
+    const blob = await bitmapToBlob(asset.bitmap, 'png')
     previewUrl.value = URL.createObjectURL(blob)
   } else {
     previewUrl.value = null
@@ -90,8 +90,8 @@ const statusClass = computed(() => {
           >
             <span class="text-[10px] text-gray-600">No output</span>
           </div>
-          <div v-if="state?.output" class="text-[10px] text-gray-500 mt-1">
-            {{ state.output.width }} &times; {{ state.output.height }}
+          <div v-if="state?.output?.asset" class="text-[10px] text-gray-500 mt-1">
+            {{ state.output.asset.width }} &times; {{ state.output.asset.height }}
           </div>
         </div>
       </div>
@@ -117,6 +117,12 @@ const statusClass = computed(() => {
         <div v-if="state?.deviceUsed" class="mt-1 text-[10px] text-gray-500">
           Device: {{ state.deviceUsed }}
         </div>
+      </div>
+
+      <!-- Data output (e.g. spritesheet UV data) -->
+      <div v-if="state?.output?.data" class="p-3 border-b border-gray-800">
+        <div class="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-2">Data Output</div>
+        <pre class="text-[10px] text-gray-400 bg-gray-800 rounded p-2 overflow-auto max-h-[200px] whitespace-pre-wrap break-all">{{ JSON.stringify(state.output.data, null, 2) }}</pre>
       </div>
 
       <!-- Parameters -->
@@ -306,6 +312,57 @@ const statusClass = computed(() => {
               <option value="auto">Auto</option>
               <option value="webgpu">WebGPU</option>
               <option value="wasm">WASM</option>
+            </select>
+          </label>
+        </template>
+
+        <!-- Spritesheet params -->
+        <template v-if="nodeType === 'spritesheet' && params">
+          <label class="block text-xs">
+            <span class="text-gray-400">Columns</span>
+            <select
+              :value="params.columns"
+              class="w-full mt-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-300 text-xs"
+              @change="updateParam('columns', ($event.target as HTMLSelectElement).value === 'auto' ? 'auto' : +($event.target as HTMLSelectElement).value)"
+            >
+              <option value="auto">Auto</option>
+              <option v-for="n in 12" :key="n" :value="n">{{ n }}</option>
+            </select>
+          </label>
+          <label class="block text-xs">
+            <span class="text-gray-400">Rows</span>
+            <select
+              :value="params.rows"
+              class="w-full mt-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-300 text-xs"
+              @change="updateParam('rows', ($event.target as HTMLSelectElement).value === 'auto' ? 'auto' : +($event.target as HTMLSelectElement).value)"
+            >
+              <option value="auto">Auto</option>
+              <option v-for="n in 12" :key="n" :value="n">{{ n }}</option>
+            </select>
+          </label>
+          <label class="block text-xs">
+            <span class="text-gray-400">Gap</span>
+            <input
+              type="range"
+              :value="params.gap"
+              min="0"
+              max="64"
+              step="1"
+              class="w-full mt-1"
+              @input="updateParam('gap', +($event.target as HTMLInputElement).value)"
+            >
+            <span class="text-gray-500 text-[10px]">{{ params.gap }}px</span>
+          </label>
+          <label class="block text-xs">
+            <span class="text-gray-400">Background</span>
+            <select
+              :value="params.bgColor"
+              class="w-full mt-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-300 text-xs"
+              @change="updateParam('bgColor', ($event.target as HTMLSelectElement).value)"
+            >
+              <option value="transparent">Transparent</option>
+              <option value="#000000">Black</option>
+              <option value="#ffffff">White</option>
             </select>
           </label>
         </template>

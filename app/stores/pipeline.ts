@@ -3,7 +3,7 @@ import { ref, computed, watch } from 'vue'
 import type { Node, Edge } from '@vue-flow/core'
 import { nanoid } from 'nanoid'
 import type { PipelineDefinition, NodeType, NodeDef, EdgeDef } from '~~/shared/types/pipeline'
-import type { NodeState } from '~~/shared/types/execution'
+import type { NodeState, NodeOutput } from '~~/shared/types/execution'
 import { createDefaultNodeState } from '~~/shared/types/execution'
 import { DEFAULT_PARAMS, type NodeParamsMap } from '~~/shared/types/node-params'
 import type { ImageFrame } from '~~/shared/types/image-frame'
@@ -53,7 +53,7 @@ export const usePipelineStore = defineStore('pipeline', () => {
   const outputImage = computed<ImageFrame | null>(() => {
     const out = outputNode.value
     if (!out) return null
-    return nodeStates.value.get(out.id)?.output || null
+    return nodeStates.value.get(out.id)?.output?.asset || null
   })
 
   // Actions
@@ -106,9 +106,9 @@ export const usePipelineStore = defineStore('pipeline', () => {
     const edgeDefs = edges.value.map(e => ({
       id: e.id,
       source: e.source,
-      sourceHandle: e.sourceHandle || 'output',
+      sourceHandle: e.sourceHandle || 'asset',
       target: e.target,
-      targetHandle: e.targetHandle || 'input',
+      targetHandle: e.targetHandle || 'asset',
     })) as EdgeDef[]
     for (const id of getDownstreamNodes(nodeId, edgeDefs)) {
       invalidateNode(id)
@@ -131,7 +131,17 @@ export const usePipelineStore = defineStore('pipeline', () => {
     inputImages.value = new Map(inputImages.value)
     isDirty.value = true
     invalidateDownstream(nodeId)
-    updateNodeState(nodeId, { output: frame, status: 'done', cacheKey: null })
+    updateNodeState(nodeId, { output: { asset: frame }, status: 'done', cacheKey: null })
+
+    // Auto-spawn a new empty input node if all input nodes now have images
+    const inputNodeIds = nodes.value.filter(n => n.type === 'input').map(n => n.id)
+    const hasEmpty = inputNodeIds.some(id => !inputImages.value.has(id))
+    if (!hasEmpty) {
+      const currentNode = nodes.value.find(n => n.id === nodeId)
+      const y = currentNode ? currentNode.position.y + 250 : 200
+      const x = currentNode ? currentNode.position.x : 60
+      addNode('input', { x, y })
+    }
   }
 
   function addNode(type: NodeType, position: { x: number; y: number }) {
@@ -146,6 +156,7 @@ export const usePipelineStore = defineStore('pipeline', () => {
       'outline': 'Outline',
       'depth': 'Estimate Depth',
       'face-parse': 'Face Parse',
+      'spritesheet': 'Spritesheet',
     }
 
     nodes.value.push({
@@ -164,8 +175,9 @@ export const usePipelineStore = defineStore('pipeline', () => {
   function removeNode(nodeId: string) {
     const node = nodes.value.find(n => n.id === nodeId)
     if (!node) return
-    // Prevent deleting input/output nodes
-    if (node.type === 'input' || node.type === 'output') return
+    // Prevent deleting the last input or last output node
+    if (node.type === 'input' && nodes.value.filter(n => n.type === 'input').length <= 1) return
+    if (node.type === 'output' && nodes.value.filter(n => n.type === 'output').length <= 1) return
 
     nodes.value = nodes.value.filter(n => n.id !== nodeId)
     edges.value = edges.value.filter(e => e.source !== nodeId && e.target !== nodeId)
@@ -185,7 +197,7 @@ export const usePipelineStore = defineStore('pipeline', () => {
     nodeStates.value = new Map(nodeStates.value)
     // Preserve input images
     for (const [id, frame] of inputImages.value) {
-      updateNodeState(id, { output: frame, status: 'done' })
+      updateNodeState(id, { output: { asset: frame }, status: 'done' })
     }
   }
 
@@ -243,11 +255,11 @@ export const usePipelineStore = defineStore('pipeline', () => {
     ] as Node[]
 
     edges.value = [
-      { id: nanoid(8), source: inputId, target: removeBgId, sourceHandle: 'output', targetHandle: 'input' },
-      { id: nanoid(8), source: removeBgId, target: normalizeId, sourceHandle: 'output', targetHandle: 'input' },
-      { id: nanoid(8), source: normalizeId, target: outlineId, sourceHandle: 'output', targetHandle: 'input' },
-      { id: nanoid(8), source: outlineId, target: upscaleId, sourceHandle: 'output', targetHandle: 'input' },
-      { id: nanoid(8), source: upscaleId, target: outputId, sourceHandle: 'output', targetHandle: 'input' },
+      { id: nanoid(8), source: inputId, target: removeBgId, sourceHandle: 'asset', targetHandle: 'asset' },
+      { id: nanoid(8), source: removeBgId, target: normalizeId, sourceHandle: 'asset', targetHandle: 'asset' },
+      { id: nanoid(8), source: normalizeId, target: outlineId, sourceHandle: 'asset', targetHandle: 'asset' },
+      { id: nanoid(8), source: outlineId, target: upscaleId, sourceHandle: 'asset', targetHandle: 'asset' },
+      { id: nanoid(8), source: upscaleId, target: outputId, sourceHandle: 'asset', targetHandle: 'asset' },
     ] as Edge[]
 
     nodeStates.value = new Map()
@@ -262,7 +274,7 @@ export const usePipelineStore = defineStore('pipeline', () => {
 
   function serializePipeline(): PipelineDefinition {
     return {
-      version: 1,
+      version: 2,
       nodes: nodes.value.map(n => ({
         id: n.id,
         type: n.type as NodeType,
@@ -273,9 +285,9 @@ export const usePipelineStore = defineStore('pipeline', () => {
       edges: edges.value.map(e => ({
         id: e.id,
         source: e.source,
-        sourceHandle: e.sourceHandle || 'output',
+        sourceHandle: e.sourceHandle || 'asset',
         target: e.target,
-        targetHandle: e.targetHandle || 'input',
+        targetHandle: e.targetHandle || 'asset',
       })),
     }
   }
@@ -292,12 +304,13 @@ export const usePipelineStore = defineStore('pipeline', () => {
       data: { params: n.params },
     })) as Node[]
 
+    // Migrate v1 handle names: "output" → "asset", "input" → "asset"
     edges.value = def.edges.map(e => ({
       id: e.id,
       source: e.source,
-      sourceHandle: e.sourceHandle,
+      sourceHandle: e.sourceHandle === 'output' ? 'asset' : e.sourceHandle,
       target: e.target,
-      targetHandle: e.targetHandle,
+      targetHandle: e.targetHandle === 'input' ? 'asset' : e.targetHandle,
     })) as Edge[]
 
     nodeStates.value = new Map()
@@ -310,7 +323,7 @@ export const usePipelineStore = defineStore('pipeline', () => {
           inputImages.value.set(node.id, previousImage)
           nodeStates.value.set(node.id, {
             ...createDefaultNodeState(),
-            output: previousImage,
+            output: { asset: previousImage },
             status: 'done',
           })
         }

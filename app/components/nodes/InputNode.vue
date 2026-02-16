@@ -64,7 +64,7 @@ function openFilePicker() {
   <BaseNode
     :id="id"
     :label="label || 'Input'"
-    :has-output="true"
+    node-type="input"
     :icon="PhotoIcon"
   >
     <div

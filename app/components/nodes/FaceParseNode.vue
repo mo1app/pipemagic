@@ -10,7 +10,7 @@ const state = computed(() => store.getNodeState(props.id))
 </script>
 
 <template>
-  <BaseNode :id="id" :label="label || 'Face Parse'" :has-input="true" :has-output="true" :icon="UserIcon">
+  <BaseNode :id="id" :label="label || 'Face Parse'" node-type="face-parse" :icon="UserIcon">
     <div class="text-xs text-gray-400 space-y-1">
       <div class="flex justify-between">
         <span>Device</span>

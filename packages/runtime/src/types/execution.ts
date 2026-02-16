@@ -2,13 +2,18 @@ import type { ImageFrame } from './image-frame'
 
 export type NodeStatus = 'idle' | 'pending' | 'running' | 'done' | 'error' | 'cached'
 
+export interface NodeOutput {
+  asset: ImageFrame
+  [key: string]: ImageFrame | unknown
+}
+
 export interface NodeState {
   status: NodeStatus
   progress: number
   statusMessage: string | null
   downloadProgress: number | null
   error: string | null
-  output: ImageFrame | null
+  output: NodeOutput | null
   cacheKey: string | null
   deviceUsed?: 'webgpu' | 'wasm' | null
 }

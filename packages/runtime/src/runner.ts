@@ -1,25 +1,43 @@
 import type { NodeType, NodeDef, EdgeDef, PipelineDefinition } from './types/pipeline'
 import type { ImageFrame } from './types/image-frame'
-import type { ExecutionContext, NodeStatus, NodeState } from './types/execution'
+import type { ExecutionContext, NodeStatus, NodeState, NodeOutput } from './types/execution'
 import { createDefaultNodeState } from './types/execution'
-import { topoSort, getUpstreamNodes, validatePipeline } from './utils/graph'
+import { topoSort, getUpstreamEdges, validatePipeline } from './utils/graph'
 import { computeCacheKey } from './utils/hash'
 import { resizeBitmap } from './utils/image'
 import { createFrame } from './utils/gpu'
+import { getHandleDefs } from './registry'
 import { executeRemoveBg } from './executors/remove-bg'
 import { executeUpscale } from './executors/upscale'
 import { executeNormalize } from './executors/normalize'
 import { executeOutline } from './executors/outline'
 import { executeDepth } from './executors/depth'
 import { executeFaceParse } from './executors/face-parse'
+import { executeSpritesheet } from './executors/spritesheet'
 
-export type NodeExecutor = (
+/** Legacy executor signature (single ImageFrame[] in, single ImageFrame out). */
+export type LegacyNodeExecutor = (
   ctx: ExecutionContext,
   inputs: ImageFrame[],
   params: Record<string, unknown>,
 ) => Promise<ImageFrame>
 
-const executors: Record<string, NodeExecutor> = {
+/** New executor signature: named inputs, NodeOutput out. */
+export type NodeExecutor = (
+  ctx: ExecutionContext,
+  inputs: Record<string, ImageFrame | ImageFrame[]>,
+  params: Record<string, unknown>,
+) => Promise<NodeOutput>
+
+/** Wrap a legacy executor to the new signature. */
+function wrapExecutor(fn: LegacyNodeExecutor): NodeExecutor {
+  return async (ctx, inputs, params) => {
+    const flat = Object.values(inputs).flat() as ImageFrame[]
+    return { asset: await fn(ctx, flat, params) }
+  }
+}
+
+const legacyExecutors: Record<string, LegacyNodeExecutor> = {
   'remove-bg': executeRemoveBg,
   'normalize': executeNormalize,
   'upscale': executeUpscale,
@@ -27,6 +45,21 @@ const executors: Record<string, NodeExecutor> = {
   'depth': executeDepth,
   'face-parse': executeFaceParse,
 }
+
+const executors: Record<string, NodeExecutor> = {
+  'spritesheet': executeSpritesheet,
+}
+for (const [key, fn] of Object.entries(legacyExecutors)) {
+  executors[key] = wrapExecutor(fn)
+}
+
+/** Register a native v2 executor (e.g. spritesheet). */
+export function registerExecutor(nodeType: string, executor: NodeExecutor) {
+  executors[nodeType] = executor
+}
+
+// Keep the old type name as an alias for backwards compat
+export { LegacyNodeExecutor as NodeExecutorLegacy }
 
 export interface RunOptions {
   signal?: AbortSignal
@@ -36,20 +69,38 @@ export interface RunOptions {
   onNodeDownloadProgress?: (nodeId: string, progress: number | null) => void
 }
 
+export interface OutputEntry {
+  asset: Blob
+  width: number
+  height: number
+  data?: unknown
+}
+
 export interface RunResult {
   blob: Blob
   width: number
   height: number
-  nodeOutputs: Map<string, ImageFrame>
+  outputs: Record<string, OutputEntry>
+  nodeOutputs: Map<string, NodeOutput>
+}
+
+/** Migrate v1 handle names to v2. */
+function migrateEdges(edges: EdgeDef[]): EdgeDef[] {
+  return edges.map(e => ({
+    ...e,
+    sourceHandle: e.sourceHandle === 'output' ? 'asset' : e.sourceHandle,
+    targetHandle: e.targetHandle === 'input' ? 'asset' : e.targetHandle,
+  }))
 }
 
 export async function runPipeline(
   pipeline: PipelineDefinition,
-  inputImage: ImageBitmap,
+  inputImage: ImageBitmap | Map<string, ImageBitmap>,
   gpuDevice: GPUDevice | null,
   options: RunOptions = {},
 ): Promise<RunResult> {
-  const { nodes, edges } = pipeline
+  const { nodes } = pipeline
+  const edges = migrateEdges(pipeline.edges)
   const { signal, onNodeProgress, onNodeStatus, onNodeStatusMessage, onNodeDownloadProgress } = options
 
   // Validate
@@ -58,10 +109,15 @@ export async function runPipeline(
     throw new Error(`Pipeline validation failed: ${errors.map(e => e.message).join('; ')}`)
   }
 
+  // Normalize input to Map
+  const inputMap: Map<string, ImageBitmap> = inputImage instanceof Map
+    ? inputImage
+    : new Map([['__default__', inputImage]])
+
   // Set up abort
   const abortSignal = signal ?? new AbortController().signal
 
-  // Local node state (replaces Pinia store)
+  // Local node state
   const nodeStates = new Map<string, NodeState>()
   for (const node of nodes) {
     nodeStates.set(node.id, createDefaultNodeState())
@@ -97,11 +153,8 @@ export async function runPipeline(
   // Topo sort
   const order = topoSort(nodes, edges)
 
-  // Store the input image as a frame for input nodes
-  const inputFrame = createFrame(inputImage)
-
-  // Track last output for returning
-  let lastOutputFrame: ImageFrame | null = null
+  // Track output nodes for final result
+  const outputNodeIds: string[] = []
 
   // Execute in order
   for (const nodeId of order) {
@@ -113,16 +166,33 @@ export async function runPipeline(
     const nodeType = node.type as NodeType
     const params = node.params || {}
 
-    // Gather inputs from upstream nodes
-    const upstreamIds = getUpstreamNodes(nodeId, edges)
-    const inputs: ImageFrame[] = []
-    const inputRevisions: number[] = []
+    // Handle-aware input gathering
+    const upstreamEdges = getUpstreamEdges(nodeId, edges)
+    const handleDefs = getHandleDefs(nodeType)
+    const inputs: Record<string, ImageFrame | ImageFrame[]> = {}
+    const inputRevisions: Record<string, number[]> = {}
 
-    for (const upId of upstreamIds) {
-      const upState = nodeStates.get(upId)
-      if (upState?.output) {
-        inputs.push(upState.output)
-        inputRevisions.push(upState.output.revision)
+    for (const edge of upstreamEdges) {
+      const upState = nodeStates.get(edge.source)
+      if (!upState?.output) continue
+
+      const sourceOutput = upState.output[edge.sourceHandle] as ImageFrame | undefined
+      if (!sourceOutput) continue
+
+      const targetHandle = edge.targetHandle
+      const handleDef = handleDefs.targets.find(h => h.id === targetHandle)
+
+      if (handleDef?.multi) {
+        // Accumulate into array
+        if (!inputs[targetHandle]) {
+          inputs[targetHandle] = []
+          inputRevisions[targetHandle] = []
+        }
+        ;(inputs[targetHandle] as ImageFrame[]).push(sourceOutput)
+        ;(inputRevisions[targetHandle] as number[]).push(sourceOutput.revision)
+      } else {
+        inputs[targetHandle] = sourceOutput
+        inputRevisions[targetHandle] = [sourceOutput.revision]
       }
     }
 
@@ -132,7 +202,7 @@ export async function runPipeline(
     if (existingState.cacheKey === cacheKey && existingState.output) {
       updateState(nodeId, { status: 'cached' })
       onNodeStatus?.(nodeId, 'cached')
-      if (nodeType === 'output') lastOutputFrame = existingState.output
+      if (nodeType === 'output') outputNodeIds.push(nodeId)
       continue
     }
 
@@ -141,21 +211,34 @@ export async function runPipeline(
     onNodeStatus?.(nodeId, 'running')
 
     try {
-      let output: ImageFrame
+      let output: NodeOutput
 
       if (nodeType === 'input') {
+        // Look up input image by label, then by id, then default
+        const label = node.label || node.id
+        let bitmap = inputMap.get(label) ?? inputMap.get(node.id) ?? inputMap.get('__default__')
+        if (!bitmap) throw new Error(`No input image for "${label}"`)
+
         const maxSize = (params.maxSize as number) || 2048
         const fit = (params.fit as 'contain' | 'cover' | 'fill') || 'contain'
-        const resized = await resizeBitmap(inputFrame.bitmap, maxSize, fit)
-        output = createFrame(resized)
+        const resized = await resizeBitmap(bitmap, maxSize, fit)
+        output = { asset: createFrame(resized) }
       } else if (nodeType === 'output') {
-        if (inputs.length === 0) throw new Error('No input to output node')
-        output = inputs[0]
+        const assetInput = inputs.asset as ImageFrame | undefined
+        if (!assetInput) throw new Error('No input to output node')
+        output = { asset: assetInput }
+        // Pass through data handle if connected
+        const dataInput = inputs.data
+        if (dataInput) output.data = dataInput
+        outputNodeIds.push(nodeId)
       } else {
         const executor = executors[nodeType]
         if (!executor) throw new Error(`No executor for node type: ${nodeType}`)
-        if (inputs.length === 0) throw new Error('No input image')
-        // Create per-node context with correct nodeId in progress callback
+
+        const hasInputs = Object.keys(inputs).length > 0
+        if (!hasInputs) throw new Error('No input image')
+
+        // Create per-node context
         const nodeCtx: ExecutionContext = {
           ...ctx,
           onProgress: (_id, progress) => ctx.onProgress(nodeId, progress),
@@ -176,8 +259,6 @@ export async function runPipeline(
         error: null,
       })
       onNodeStatus?.(nodeId, 'done')
-
-      if (nodeType === 'output') lastOutputFrame = output
     } catch (e: any) {
       if (e.name === 'AbortError' || abortSignal.aborted) {
         throw new DOMException('Aborted', 'AbortError')
@@ -190,28 +271,53 @@ export async function runPipeline(
     }
   }
 
-  if (!lastOutputFrame) {
+  // Build results from all output nodes
+  const { bitmapToBlob } = await import('./utils/image')
+  const outputs: Record<string, OutputEntry> = {}
+
+  for (const outId of outputNodeIds) {
+    const outNode = nodes.find(n => n.id === outId)!
+    const outState = nodeStates.get(outId)
+    if (!outState?.output) continue
+
+    const format = (outNode.params?.format as 'png' | 'jpeg' | 'webp') || 'png'
+    const quality = (outNode.params?.quality as number) ?? 0.92
+    const assetFrame = outState.output.asset
+    const blob = await bitmapToBlob(assetFrame.bitmap, format, quality)
+
+    const label = outNode.label || outNode.id
+    outputs[label] = {
+      asset: blob,
+      width: assetFrame.width,
+      height: assetFrame.height,
+      data: outState.output.data,
+    }
+  }
+
+  // Primary output: first output node
+  const primaryOutputId = outputNodeIds[0]
+  const primaryState = primaryOutputId ? nodeStates.get(primaryOutputId) : null
+  if (!primaryState?.output) {
     throw new Error('Pipeline produced no output')
   }
 
-  // Find the output node's format params for blob conversion
-  const outputNode = nodes.find(n => n.type === 'output')
-  const format = (outputNode?.params?.format as 'png' | 'jpeg' | 'webp') || 'png'
-  const quality = (outputNode?.params?.quality as number) ?? 0.92
-
-  const { bitmapToBlob } = await import('./utils/image')
-  const blob = await bitmapToBlob(lastOutputFrame.bitmap, format, quality)
+  const primaryNode = nodes.find(n => n.id === primaryOutputId)!
+  const primaryFormat = (primaryNode.params?.format as 'png' | 'jpeg' | 'webp') || 'png'
+  const primaryQuality = (primaryNode.params?.quality as number) ?? 0.92
+  const primaryFrame = primaryState.output.asset
+  const primaryBlob = await bitmapToBlob(primaryFrame.bitmap, primaryFormat, primaryQuality)
 
   // Collect all node outputs
-  const nodeOutputs = new Map<string, ImageFrame>()
+  const nodeOutputs = new Map<string, NodeOutput>()
   for (const [id, state] of nodeStates) {
     if (state.output) nodeOutputs.set(id, state.output)
   }
 
   return {
-    blob,
-    width: lastOutputFrame.width,
-    height: lastOutputFrame.height,
+    blob: primaryBlob,
+    width: primaryFrame.width,
+    height: primaryFrame.height,
+    outputs,
     nodeOutputs,
   }
 }
