@@ -38,7 +38,10 @@ const statusColor = computed(() => {
 
 const isSelected = computed(() => store.selectedNodeId === props.id)
 
-const isDeletable = computed(() => props.hasInput && props.hasOutput)
+const isDeletable = computed(() => {
+  const defs = getHandleDefs(props.nodeType)
+  return defs.targets.length > 0 && defs.sources.length > 0
+})
 
 function deleteNode() {
   store.removeNode(props.id)
@@ -96,16 +99,6 @@ onUnmounted(() => {
         v-if="icon"
         class="w-3.5 h-3.5 text-gray-500 flex-shrink-0"
       />
-      <button
-        v-if="isSelected && isDeletable"
-        class="nodrag w-4 h-4 flex items-center justify-center rounded hover:bg-red-500/30 text-gray-500 hover:text-red-400 transition-colors flex-shrink-0"
-        title="Delete node"
-        @click.stop="deleteNode"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3 h-3">
-          <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
-        </svg>
-      </button>
     </div>
 
     <!-- Output preview -->
@@ -174,25 +167,6 @@ onUnmounted(() => {
       }"
     />
 
-    <!-- Handle labels (only shown when >1 handle on a side) -->
-    <template v-if="targetHandles.length > 1">
-      <template v-for="(handle, idx) in targetHandles" :key="'label-t-' + handle.id">
-        <span
-          v-if="handle.label"
-          class="absolute text-[8px] text-gray-500 pointer-events-none"
-          :style="{ left: '14px', top: handlePosition(idx, targetHandles.length), transform: 'translateY(-50%)' }"
-        >{{ handle.label }}</span>
-      </template>
-    </template>
-    <template v-if="sourceHandles.length > 1">
-      <template v-for="(handle, idx) in sourceHandles" :key="'label-s-' + handle.id">
-        <span
-          v-if="handle.label"
-          class="absolute text-[8px] text-gray-500 pointer-events-none"
-          :style="{ right: '14px', top: handlePosition(idx, sourceHandles.length), transform: 'translateY(-50%)', textAlign: 'right' }"
-        >{{ handle.label }}</span>
-      </template>
-    </template>
   </div>
 </template>
 
