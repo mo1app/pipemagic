@@ -28,6 +28,7 @@ const result = await pm.run(
 - **Estimate Depth** — Monocular depth estimation using [Depth Anything V2](https://huggingface.co/onnx-community/depth-anything-v2-small) via Transformers.js (WebGPU / WASM). Fast (~25 MB) and Quality (~40 MB) modes
 - **Face Parse** — Face segmentation into 19 classes (skin, eyes, hair, etc.) using [face-parsing](https://huggingface.co/Xenova/face-parsing) via Transformers.js (WebGPU / WASM). Outputs a color-coded segmentation map
 - **Upscale 2x** — Super-resolution with [WebSR](https://github.com/nicknbytes/websr) (Anime4K CNN models)
+- **Spritesheet** — Composite multiple images into a grid spritesheet with configurable columns, rows, gap, and background color. Outputs UV-mapped frame data for game engines
 - **Output** — Encode to PNG / JPEG / WebP
 
 ## Packages

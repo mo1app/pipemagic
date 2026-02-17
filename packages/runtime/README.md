@@ -106,6 +106,17 @@ Face segmentation into 19 classes (skin, eyes, brows, nose, mouth, lips, ears, h
 | `model`       | `'cnn-2x-s' \| 'cnn-2x-m' \| 'cnn-2x-l'` | `'cnn-2x-s'` | Model size        |
 | `contentType` | `'rl' \| 'an' \| '3d'`                   | `'rl'`       | Content type hint |
 
+### `spritesheet`
+
+Composites multiple input images into a grid spritesheet. Accepts multiple connections on its `images` input handle. Outputs the combined image plus a JSON data object with per-frame positions and UV coordinates.
+
+| Param     | Type                 | Default         | Description                        |
+| --------- | -------------------- | --------------- | ---------------------------------- |
+| `columns` | `number \| 'auto'`   | `'auto'`        | Number of columns (auto = √n)      |
+| `rows`    | `number \| 'auto'`   | `'auto'`        | Number of rows (auto = ceil(n/cols))|
+| `gap`     | `number`             | `0`             | Gap between cells in pixels        |
+| `bgColor` | `string`             | `'transparent'` | Background color (hex or `'transparent'`) |
+
 ### `output`
 
 Encodes the final image as a Blob.
