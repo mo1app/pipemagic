@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { VueFlow, useVueFlow } from "@vue-flow/core";
+import { VueFlow, useVueFlow, SelectionMode } from "@vue-flow/core";
 import { Background } from "@vue-flow/background";
 import { Controls } from "@vue-flow/controls";
 import { MiniMap } from "@vue-flow/minimap";
@@ -79,12 +79,19 @@ const {
   project,
   setCenter,
   getViewport,
+  getSelectedNodes,
   fitView,
 } = useVueFlow();
 
-// Sync selection
-onNodeClick(({ node }) => {
-  store.selectNode(node.id);
+// Sync Vue Flow selection → store
+watch(getSelectedNodes, (selectedNodes) => {
+  store.selectedNodeIds = selectedNodes.map((n) => n.id);
+  if (selectedNodes.length > 0) store.selectEdge(null);
+});
+
+onNodeClick(() => {
+  // Clear edge selection when a node is clicked; Vue Flow handles node selection
+  store.selectEdge(null);
 });
 
 onEdgeClick(({ edge }) => {
@@ -92,7 +99,6 @@ onEdgeClick(({ edge }) => {
 });
 
 onPaneClick(() => {
-  store.selectNode(null);
   store.selectEdge(null);
 });
 
@@ -140,17 +146,31 @@ const nodeContextMenu = ref<{ x: number; y: number; nodeId: string; show: boolea
 
 onNodeContextMenu(({ event, node }) => {
   event.preventDefault();
+  // If the right-clicked node isn't in the current selection, make it the sole selection
+  if (!store.selectedNodeIds.includes(node.id)) {
+    for (const n of store.nodes) n.selected = n.id === node.id;
+    store.selectedNodeIds = [node.id];
+  }
   nodeContextMenu.value = { x: event.clientX, y: event.clientY, nodeId: node.id, show: true };
 });
 
+const nodeContextMenuLabel = computed(() => {
+  const count = store.selectedNodeIds.length;
+  return count > 1 ? `Delete ${count} Nodes` : "Delete Node";
+});
+
 function deleteNodeFromMenu() {
-  store.removeNode(nodeContextMenu.value.nodeId);
+  if (store.selectedNodeIds.length > 1) {
+    store.removeSelectedNodes();
+  } else {
+    store.removeNode(nodeContextMenu.value.nodeId);
+  }
   nodeContextMenu.value.show = false;
 }
 
 // Close context menus when selection changes
 watch(
-  () => [store.selectedNodeId, store.selectedEdgeId],
+  () => [store.selectedNodeIds, store.selectedEdgeId],
   () => {
     edgeContextMenu.value.show = false;
     nodeContextMenu.value.show = false;
@@ -328,6 +348,9 @@ watch(
       :max-zoom="2"
       :edges-updatable="true"
       :delete-key-code="null"
+      :multi-selection-key-code="'Shift'"
+      :selection-key-code="'Shift'"
+      :selection-mode="SelectionMode.Partial"
       fit-view-on-init
       @pane-contextmenu="onPaneContextMenu"
     >
@@ -397,7 +420,7 @@ watch(
           @click.stop="deleteNodeFromMenu"
         >
           <TrashIcon class="w-3.5 h-3.5 flex-shrink-0" />
-          <span class="flex-1">Delete Node</span>
+          <span class="flex-1">{{ nodeContextMenuLabel }}</span>
         </button>
       </div>
     </Teleport>

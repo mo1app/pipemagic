@@ -36,7 +36,7 @@ const statusColor = computed(() => {
   }
 })
 
-const isSelected = computed(() => store.selectedNodeId === props.id)
+const isSelected = computed(() => store.selectedNodeIds.includes(props.id))
 
 const isDeletable = computed(() => {
   const defs = getHandleDefs(props.nodeType)

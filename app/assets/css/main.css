@@ -37,6 +37,15 @@ html, body, #__nuxt {
   padding: 0 !important;
 }
 
+.vue-flow__selection {
+  background: rgba(83, 93, 255, 0.08);
+  border: 1px solid rgba(83, 93, 255, 0.4);
+}
+
+.vue-flow__nodesselection {
+  display: none !important;
+}
+
 .vue-flow__minimap {
   background: #1a1a1a !important;
   border: 1px solid #333;

@@ -17,8 +17,15 @@ export const usePipelineStore = defineStore('pipeline', () => {
   const edges = ref<Edge[]>([])
 
   // Selection
-  const selectedNodeId = ref<string | null>(null)
+  const selectedNodeIds = ref<string[]>([])
   const selectedEdgeId = ref<string | null>(null)
+
+  // Backward-compat: last selected node (used by inspector)
+  const selectedNodeId = computed(() =>
+    selectedNodeIds.value.length > 0
+      ? selectedNodeIds.value[selectedNodeIds.value.length - 1]
+      : null,
+  )
 
   // Execution state
   const isRunning = ref(false)
@@ -57,18 +64,17 @@ export const usePipelineStore = defineStore('pipeline', () => {
   })
 
   // Actions
-  function selectNode(nodeId: string | null) {
-    selectedNodeId.value = nodeId
-    if (nodeId) selectedEdgeId.value = null
-  }
-
   function selectEdge(edgeId: string | null) {
     // Sync Vue Flow's selected state on edge objects
     for (const e of edges.value) {
       e.selected = e.id === edgeId
     }
     selectedEdgeId.value = edgeId
-    if (edgeId) selectedNodeId.value = null
+    if (edgeId) {
+      // Deselect all nodes via Vue Flow's selected property
+      for (const n of nodes.value) n.selected = false
+      selectedNodeIds.value = []
+    }
   }
 
   function removeEdge(edgeId: string) {
@@ -149,16 +155,20 @@ export const usePipelineStore = defineStore('pipeline', () => {
       'spritesheet': 'Spritesheet',
     }
 
+    // Deselect all existing nodes
+    for (const n of nodes.value) n.selected = false
+
     nodes.value.push({
       id,
       type,
       position,
       label: labels[type],
       data: { params },
+      selected: true,
     } as Node)
 
     isDirty.value = true
-    selectedNodeId.value = id
+    selectedNodeIds.value = [id]
     return id
   }
 
@@ -174,10 +184,16 @@ export const usePipelineStore = defineStore('pipeline', () => {
     nodeStates.value.delete(nodeId)
     nodeStates.value = new Map(nodeStates.value)
 
-    if (selectedNodeId.value === nodeId) {
-      selectedNodeId.value = null
-    }
+    selectedNodeIds.value = selectedNodeIds.value.filter(id => id !== nodeId)
     isDirty.value = true
+  }
+
+  function removeSelectedNodes() {
+    // Copy the array since removeNode mutates selectedNodeIds
+    const ids = [...selectedNodeIds.value]
+    for (const id of ids) {
+      removeNode(id)
+    }
   }
 
   function clearExecution() {
@@ -257,7 +273,7 @@ export const usePipelineStore = defineStore('pipeline', () => {
     fileHandle.value = null
     fileName.value = null
     isDirty.value = false
-    selectedNodeId.value = null
+    selectedNodeIds.value = []
     selectedEdgeId.value = null
     pipelineLoadCount.value++
   }
@@ -323,7 +339,7 @@ export const usePipelineStore = defineStore('pipeline', () => {
     }
 
     isDirty.value = false
-    selectedNodeId.value = null
+    selectedNodeIds.value = []
     selectedEdgeId.value = null
     pipelineLoadCount.value++
   }
@@ -356,7 +372,7 @@ export const usePipelineStore = defineStore('pipeline', () => {
     // State
     nodes,
     edges,
-    selectedNodeId,
+    selectedNodeIds,
     selectedEdgeId,
     isRunning,
     hasRun,
@@ -368,12 +384,12 @@ export const usePipelineStore = defineStore('pipeline', () => {
     isDirty,
     pipelineLoadCount,
     // Computed
+    selectedNodeId,
     selectedNode,
     selectedNodeState,
     outputNode,
     outputImage,
     // Actions
-    selectNode,
     selectEdge,
     removeEdge,
     getNodeState,
@@ -382,6 +398,7 @@ export const usePipelineStore = defineStore('pipeline', () => {
     setInputImage,
     addNode,
     removeNode,
+    removeSelectedNodes,
     clearExecution,
     loadDefaultPipeline,
     serializePipeline,

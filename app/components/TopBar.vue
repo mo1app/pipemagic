@@ -343,10 +343,10 @@ function handleKeyboard(e: KeyboardEvent) {
     (e.key === "Delete" || e.key === "Backspace") &&
     !["INPUT", "TEXTAREA", "SELECT"].includes((e.target as Element)?.tagName)
   ) {
-    // Delete or Backspace removes selected node
-    if (store.selectedNodeId) {
+    // Delete or Backspace removes selected nodes
+    if (store.selectedNodeIds.length > 0) {
       e.preventDefault();
-      store.removeNode(store.selectedNodeId);
+      store.removeSelectedNodes();
     }
     // Also remove selected edge
     if (store.selectedEdgeId) {
