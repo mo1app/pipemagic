@@ -8,11 +8,13 @@
   "scripts": {
     "build": "nuxt build",
     "dev": "nuxt dev",
+    "dev:runtime": "yarn workspace pipemagic dev",
+    "dev:all": "concurrently --names runtime,app --prefix-colors cyan,magenta \"yarn workspace pipemagic dev\" \"nuxt dev\"",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
-    "build:runtime": "cd packages/runtime && npm run build",
-    "dev:example": "cd packages/example && npx vite"
+    "build:runtime": "yarn workspace pipemagic build",
+    "dev:example": "yarn workspace pipemagic-example dev"
   },
   "dependencies": {
     "@heroicons/vue": "^2.2.0",
@@ -28,12 +30,13 @@
     "nanoid": "^5.1.2",
     "nuxt": "^3.16.0",
     "pinia": "^2.3.1",
-    "pipemagic": "0.1.3",
+    "pipemagic": "workspace:*",
     "tailwindcss": "^4.1.18",
     "vue": "^3.5.13"
   },
   "devDependencies": {
+    "concurrently": "^9.2.1",
     "typescript": "^5.7.3"
   },
-  "packageManager": "yarn@1.22.21+sha1.1959a18351b811cdeedbd484a8f86c3cc3bbaf72"
+  "packageManager": "yarn@4.12.0+sha512.f45ab632439a67f8bc759bf32ead036a1f413287b9042726b7cc4818b7b49e14e9423ba49b18f9e06ea4941c1ad062385b1d8760a8d5091a1a31e5f6219afca8"
 }

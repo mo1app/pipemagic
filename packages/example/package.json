@@ -7,10 +7,10 @@
     "build": "vite build"
   },
   "dependencies": {
-    "pipemagic": "0.1.0"
+    "pipemagic": "workspace:*"
   },
   "devDependencies": {
-    "vite": "^6.3.0",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vite": "^6.3.0"
   }
 }

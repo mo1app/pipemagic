@@ -23,7 +23,8 @@ jobs:
         with:
           node-version: 22
           cache: yarn
-      - run: yarn install --frozen-lockfile --ignore-engines
+      - run: corepack enable
+      - run: yarn install --immutable
 
       # Build the runtime package (needed by both apps)
       - run: yarn build:runtime
