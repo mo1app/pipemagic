@@ -23,7 +23,7 @@ import {
   TrashIcon,
 } from "@heroicons/vue/20/solid";
 import { usePipelineStore } from "~/stores/pipeline";
-import { getHandleDefs } from "pipemagic";
+import { getHandleDefs, fileToBitmap, resizeBitmap } from "pipemagic";
 import type { NodeType } from "~~/shared/types/pipeline";
 import type { Connection } from "@vue-flow/core";
 
@@ -333,10 +333,66 @@ watch(
     });
   },
 );
+
+// Canvas-level multi-file drop handler
+async function onCanvasDrop(e: DragEvent) {
+  e.preventDefault();
+  // Don't handle drops that land on a node — let the node's own handler deal with it
+  if ((e.target as HTMLElement).closest(".vue-flow__node")) return;
+
+  const files = [...(e.dataTransfer?.files || [])].filter((f) =>
+    f.type.startsWith("image/"),
+  );
+  if (!files.length) return;
+
+  // Get existing input nodes sorted by vertical position (top → bottom)
+  const inputNodes = store.nodes
+    .filter((n: any) => n.type === "input")
+    .sort((a: any, b: any) => a.position.y - b.position.y);
+
+  // Build assignment list: pair each file with a node ID
+  // Assign to existing inputs first, then create new nodes for overflow
+  const assignments: { nodeId: string; file: File }[] = [];
+  for (let i = 0; i < files.length; i++) {
+    let nodeId: string;
+    if (i < inputNodes.length) {
+      nodeId = inputNodes[i].id;
+    } else {
+      const refNode =
+        inputNodes[inputNodes.length - 1] ||
+        store.nodes[store.nodes.length - 1];
+      const refPos = refNode
+        ? refNode.position
+        : { x: 60, y: -20 };
+      const yOffset = 200 * (i - inputNodes.length + 1);
+      nodeId = store.addNode("input", {
+        x: refPos.x,
+        y: refPos.y + yOffset,
+      });
+    }
+    assignments.push({ nodeId, file: files[i] });
+  }
+
+  // Process all files → load images into the assigned nodes
+  for (const { nodeId, file } of assignments) {
+    const node = store.nodes.find((n: any) => n.id === nodeId);
+    const params = (node?.data as any)?.params || {};
+    const bitmap = await fileToBitmap(file);
+    const maxSize = (params.maxSize as number) || 2048;
+    const fit = (params.fit as "contain" | "cover" | "fill") || "contain";
+    const resized = await resizeBitmap(bitmap, maxSize, fit);
+    store.setInputImage(nodeId, {
+      bitmap: resized,
+      width: resized.width,
+      height: resized.height,
+      revision: Date.now(),
+    });
+  }
+}
 </script>
 
 <template>
-  <div ref="containerRef" class="w-full h-full" @click="closeContextMenu" @contextmenu.prevent="onCanvasContextMenu">
+  <div ref="containerRef" class="w-full h-full" @click="closeContextMenu" @contextmenu.prevent="onCanvasContextMenu" @dragover.prevent @drop="onCanvasDrop">
     <VueFlow
       v-model:nodes="store.nodes"
       v-model:edges="store.edges"
