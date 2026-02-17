@@ -321,12 +321,19 @@ function handleKeyboard(e: KeyboardEvent) {
     if (store.isRunning) stop();
     else run();
   }
-  if (e.key === "Delete" || e.key === "Backspace") {
-    if (
-      store.selectedNodeId &&
-      !["INPUT", "TEXTAREA", "SELECT"].includes((e.target as Element)?.tagName)
-    ) {
+  if (
+    (e.key === "Delete" || e.key === "Backspace") &&
+    !["INPUT", "TEXTAREA", "SELECT"].includes((e.target as Element)?.tagName)
+  ) {
+    // Delete key removes selected node
+    if (e.key === "Delete" && store.selectedNodeId) {
+      e.preventDefault();
       store.removeNode(store.selectedNodeId);
+    }
+    // Both Delete and Backspace remove selected edge
+    if (store.selectedEdgeId) {
+      e.preventDefault();
+      store.removeEdge(store.selectedEdgeId);
     }
   }
 }

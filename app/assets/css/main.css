@@ -71,7 +71,11 @@ html, body, #__nuxt {
   stroke-width: 2;
 }
 
-.vue-flow__edge.selected .vue-flow__edge-path,
+.vue-flow__edge.selected .vue-flow__edge-path {
+  stroke: #535DFF !important;
+  stroke-width: 3;
+}
+
 .vue-flow__edge:hover .vue-flow__edge-path {
   stroke: #888;
   stroke-width: 3;
@@ -91,6 +95,7 @@ html, body, #__nuxt {
   border: 2px solid #333;
 }
 
+
 .vue-flow__handle:hover {
   background: #aaa;
   border-color: #aaa;
@@ -98,6 +103,32 @@ html, body, #__nuxt {
 
 .vue-flow__handle-connecting {
   background: #aaa;
+}
+
+.vue-flow__edgeupdater {
+  r: 6;
+  fill: #555;
+  stroke: #333;
+  stroke-width: 2;
+  cursor: move;
+  opacity: 0;
+}
+
+.vue-flow__edges {
+  z-index: 3 !important;
+}
+
+.vue-flow__edgeupdater:hover {
+  fill: #aaa;
+  stroke: #aaa;
+}
+
+.vue-flow__edgeupdater-source {
+  transform: translateX(-12px);
+}
+
+.vue-flow__edgeupdater-target {
+  transform: translateX(12px);
 }
 
 /* Scrollbar styling */

@@ -18,6 +18,7 @@ export const usePipelineStore = defineStore('pipeline', () => {
 
   // Selection
   const selectedNodeId = ref<string | null>(null)
+  const selectedEdgeId = ref<string | null>(null)
 
   // Execution state
   const isRunning = ref(false)
@@ -58,6 +59,26 @@ export const usePipelineStore = defineStore('pipeline', () => {
   // Actions
   function selectNode(nodeId: string | null) {
     selectedNodeId.value = nodeId
+    if (nodeId) selectedEdgeId.value = null
+  }
+
+  function selectEdge(edgeId: string | null) {
+    // Sync Vue Flow's selected state on edge objects
+    for (const e of edges.value) {
+      e.selected = e.id === edgeId
+    }
+    selectedEdgeId.value = edgeId
+    if (edgeId) selectedNodeId.value = null
+  }
+
+  function removeEdge(edgeId: string) {
+    const edge = edges.value.find(e => e.id === edgeId)
+    if (!edge) return
+    edges.value = edges.value.filter(e => e.id !== edgeId)
+    if (selectedEdgeId.value === edgeId) selectedEdgeId.value = null
+    isDirty.value = true
+    invalidateNode(edge.target)
+    invalidateDownstream(edge.target)
   }
 
   function getNodeState(nodeId: string): NodeState {
@@ -235,6 +256,7 @@ export const usePipelineStore = defineStore('pipeline', () => {
     fileName.value = null
     isDirty.value = false
     selectedNodeId.value = null
+    selectedEdgeId.value = null
     pipelineLoadCount.value++
   }
 
@@ -299,6 +321,7 @@ export const usePipelineStore = defineStore('pipeline', () => {
 
     isDirty.value = false
     selectedNodeId.value = null
+    selectedEdgeId.value = null
     pipelineLoadCount.value++
   }
 
@@ -331,6 +354,7 @@ export const usePipelineStore = defineStore('pipeline', () => {
     nodes,
     edges,
     selectedNodeId,
+    selectedEdgeId,
     isRunning,
     hasRun,
     nodeStates,
@@ -347,6 +371,8 @@ export const usePipelineStore = defineStore('pipeline', () => {
     outputImage,
     // Actions
     selectNode,
+    selectEdge,
+    removeEdge,
     getNodeState,
     updateNodeState,
     updateNodeParams,

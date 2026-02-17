@@ -53,6 +53,12 @@ const {
   onNodeClick,
   onPaneClick,
   onConnect,
+  onEdgeClick,
+  onEdgeContextMenu,
+  onEdgeUpdateStart,
+  onEdgeUpdate,
+  onEdgeUpdateEnd,
+  onMoveStart,
   project,
   setCenter,
   getViewport,
@@ -64,8 +70,13 @@ onNodeClick(({ node }) => {
   store.selectNode(node.id);
 });
 
+onEdgeClick(({ edge }) => {
+  store.selectEdge(edge.id);
+});
+
 onPaneClick(() => {
   store.selectNode(null);
+  store.selectEdge(null);
 });
 
 // Handle new connections
@@ -78,6 +89,59 @@ onConnect((connection) => {
     targetHandle: connection.targetHandle || "input",
   } as any);
   store.isDirty = true;
+});
+
+// Edge context menu (right-click)
+const edgeContextMenu = ref<{ x: number; y: number; edgeId: string; show: boolean }>({
+  x: 0,
+  y: 0,
+  edgeId: "",
+  show: false,
+});
+
+onEdgeContextMenu(({ event, edge }) => {
+  event.preventDefault();
+  edgeContextMenu.value = { x: event.clientX, y: event.clientY, edgeId: edge.id, show: true };
+});
+
+function deleteEdgeFromMenu() {
+  store.removeEdge(edgeContextMenu.value.edgeId);
+  edgeContextMenu.value.show = false;
+}
+
+// Close edge context menu when selection changes
+watch(
+  () => [store.selectedNodeId, store.selectedEdgeId],
+  () => {
+    edgeContextMenu.value.show = false;
+  },
+);
+
+// Drag-to-disconnect / reconnect
+let edgeUpdateSuccessful = false;
+
+onEdgeUpdateStart(() => {
+  edgeUpdateSuccessful = false;
+});
+
+onEdgeUpdate(({ edge, connection }) => {
+  edgeUpdateSuccessful = true;
+  // Replace edge with new connection
+  store.removeEdge(edge.id);
+  store.edges.push({
+    id: nanoid(8),
+    source: connection.source,
+    sourceHandle: connection.sourceHandle || "output",
+    target: connection.target,
+    targetHandle: connection.targetHandle || "input",
+  } as any);
+  store.isDirty = true;
+});
+
+onEdgeUpdateEnd(({ edge }) => {
+  if (!edgeUpdateSuccessful) {
+    store.removeEdge(edge.id);
+  }
 });
 
 // Context menu for adding nodes
@@ -109,7 +173,10 @@ function addNodeFromMenu(type: NodeType) {
 
 function closeContextMenu() {
   contextMenu.value.show = false;
+  edgeContextMenu.value.show = false;
 }
+
+onMoveStart(closeContextMenu);
 
 // Pan camera to newly added nodes (single add only)
 let prevNodeCount = 0;
@@ -162,6 +229,8 @@ watch(
       :snap-grid="[20, 20]"
       :min-zoom="0.2"
       :max-zoom="2"
+      :edges-updatable="true"
+      :delete-key-code="null"
       fit-view-on-init
       @pane-contextmenu="onPaneContextMenu"
     >
@@ -176,7 +245,7 @@ watch(
       />
     </VueFlow>
 
-    <!-- Context menu -->
+    <!-- Add-node context menu -->
     <Teleport to="body">
       <div
         v-if="contextMenu.show"
@@ -195,6 +264,23 @@ watch(
           @click.stop="addNodeFromMenu(node.type)"
         >
           {{ node.label }}
+        </button>
+      </div>
+    </Teleport>
+
+    <!-- Edge context menu -->
+    <Teleport to="body">
+      <div
+        v-if="edgeContextMenu.show"
+        class="fixed z-50 bg-gray-900 border border-gray-700 rounded-lg shadow-xl py-1 min-w-[140px]"
+        :style="{ left: `${edgeContextMenu.x}px`, top: `${edgeContextMenu.y}px` }"
+        @click.stop
+      >
+        <button
+          class="w-full text-left px-3 py-1.5 text-sm text-red-400 hover:bg-gray-700 hover:text-red-300 transition-colors"
+          @click.stop="deleteEdgeFromMenu"
+        >
+          Delete Edge
         </button>
       </div>
     </Teleport>
