@@ -10,6 +10,18 @@ import "@vue-flow/minimap/dist/style.css";
 import { markRaw } from "vue";
 import { nanoid } from "nanoid";
 import { useElementSize } from "@vueuse/core";
+import {
+  PhotoIcon,
+  ArrowDownTrayIcon,
+  ScissorsIcon,
+  ArrowsPointingInIcon,
+  ArrowsPointingOutIcon,
+  PaintBrushIcon,
+  EyeIcon,
+  UserIcon,
+  Squares2X2Icon,
+  TrashIcon,
+} from "@heroicons/vue/20/solid";
 import { usePipelineStore } from "~/stores/pipeline";
 import { getHandleDefs } from "pipemagic";
 import type { NodeType } from "~~/shared/types/pipeline";
@@ -55,6 +67,7 @@ const minimapH = computed(() => {
 
 const {
   onNodeClick,
+  onNodeContextMenu,
   onPaneClick,
   onConnect,
   onEdgeClick,
@@ -63,7 +76,6 @@ const {
   onEdgeUpdate,
   onEdgeUpdateEnd,
   onMoveStart,
-  addEdges,
   project,
   setCenter,
   getViewport,
@@ -87,26 +99,16 @@ onPaneClick(() => {
 // Handle new connections
 onConnect((connection) => {
   if (!connection.source || !connection.target) return;
-  // Prevent duplicate connections to the same non-multi target handle
-  const targetHandleId = connection.targetHandle || "asset";
-  const exists = store.edges.some(
-    (e: any) =>
-      e.source === connection.source &&
-      e.sourceHandle === (connection.sourceHandle || "asset") &&
-      e.target === connection.target &&
-      e.targetHandle === targetHandleId,
-  );
-  if (exists) return;
+  // Validate connection before adding
+  if (!isValidConnection(connection)) return;
 
-  addEdges([
-    {
-      id: nanoid(8),
-      source: connection.source,
-      sourceHandle: connection.sourceHandle || "asset",
-      target: connection.target,
-      targetHandle: connection.targetHandle || "asset",
-    },
-  ]);
+  store.edges.push({
+    id: nanoid(8),
+    source: connection.source,
+    sourceHandle: connection.sourceHandle || "asset",
+    target: connection.target,
+    targetHandle: connection.targetHandle || "asset",
+  } as any);
   store.isDirty = true;
 });
 
@@ -128,11 +130,30 @@ function deleteEdgeFromMenu() {
   edgeContextMenu.value.show = false;
 }
 
-// Close edge context menu when selection changes
+// Node context menu (right-click)
+const nodeContextMenu = ref<{ x: number; y: number; nodeId: string; show: boolean }>({
+  x: 0,
+  y: 0,
+  nodeId: "",
+  show: false,
+});
+
+onNodeContextMenu(({ event, node }) => {
+  event.preventDefault();
+  nodeContextMenu.value = { x: event.clientX, y: event.clientY, nodeId: node.id, show: true };
+});
+
+function deleteNodeFromMenu() {
+  store.removeNode(nodeContextMenu.value.nodeId);
+  nodeContextMenu.value.show = false;
+}
+
+// Close context menus when selection changes
 watch(
   () => [store.selectedNodeId, store.selectedEdgeId],
   () => {
     edgeContextMenu.value.show = false;
+    nodeContextMenu.value.show = false;
   },
 );
 
@@ -200,20 +221,27 @@ const contextMenu = ref<{ x: number; y: number; show: boolean }>({
   show: false,
 });
 
-const addableNodes: { type: NodeType; label: string }[] = [
-  { type: "input", label: "Image Input" },
-  { type: "output", label: "Output" },
-  { type: "remove-bg", label: "Remove BG" },
-  { type: "normalize", label: "Normalize" },
-  { type: "outline", label: "Outline" },
-  { type: "upscale", label: "Upscale 2x" },
-  { type: "depth", label: "Estimate Depth" },
-  { type: "face-parse", label: "Face Parse" },
-  { type: "spritesheet", label: "Spritesheet" },
+const addableNodes: { type: NodeType; label: string; icon: Component; separator?: boolean }[] = [
+  { type: "input", label: "Image Input", icon: PhotoIcon },
+  { type: "output", label: "Output", icon: ArrowDownTrayIcon },
+  { type: "remove-bg", label: "Remove BG", icon: ScissorsIcon, separator: true },
+  { type: "normalize", label: "Normalize", icon: ArrowsPointingInIcon },
+  { type: "outline", label: "Outline", icon: PaintBrushIcon },
+  { type: "upscale", label: "Upscale 2x", icon: ArrowsPointingOutIcon },
+  { type: "depth", label: "Estimate Depth", icon: EyeIcon },
+  { type: "face-parse", label: "Face Parse", icon: UserIcon },
+  { type: "spritesheet", label: "Spritesheet", icon: Squares2X2Icon },
 ];
 
 function onPaneContextMenu(event: MouseEvent) {
   event.preventDefault();
+  contextMenu.value = { x: event.clientX, y: event.clientY, show: true };
+}
+
+function onCanvasContextMenu(event: MouseEvent) {
+  // Only show add-node menu if not clicking on a node or edge (those have their own menus)
+  const target = event.target as HTMLElement;
+  if (target.closest('.vue-flow__node') || target.closest('.vue-flow__edge')) return;
   contextMenu.value = { x: event.clientX, y: event.clientY, show: true };
 }
 
@@ -226,6 +254,23 @@ function addNodeFromMenu(type: NodeType) {
 function closeContextMenu() {
   contextMenu.value.show = false;
   edgeContextMenu.value.show = false;
+  nodeContextMenu.value.show = false;
+}
+
+// Position context menus so they don't overflow the viewport
+function menuStyle(x: number, y: number) {
+  const style: Record<string, string> = { position: 'fixed', left: `${x}px`, top: `${y}px` }
+  // Flip upward if near bottom (estimate ~300px max menu height)
+  if (y + 300 > window.innerHeight) {
+    style.top = ''
+    style.bottom = `${window.innerHeight - y}px`
+  }
+  // Flip left if near right edge
+  if (x + 200 > window.innerWidth) {
+    style.left = ''
+    style.right = `${window.innerWidth - x}px`
+  }
+  return style
 }
 
 onMoveStart(closeContextMenu);
@@ -271,7 +316,7 @@ watch(
 </script>
 
 <template>
-  <div ref="containerRef" class="w-full h-full" @click="closeContextMenu">
+  <div ref="containerRef" class="w-full h-full" @click="closeContextMenu" @contextmenu.prevent="onCanvasContextMenu">
     <VueFlow
       v-model:nodes="store.nodes"
       v-model:edges="store.edges"
@@ -283,7 +328,6 @@ watch(
       :max-zoom="2"
       :edges-updatable="true"
       :delete-key-code="null"
-      :is-valid-connection="isValidConnection"
       fit-view-on-init
       @pane-contextmenu="onPaneContextMenu"
     >
@@ -302,22 +346,21 @@ watch(
     <Teleport to="body">
       <div
         v-if="contextMenu.show"
-        class="fixed z-50 bg-gray-1200 border border-gray-700 rounded-lg shadow-xl py-1 min-w-[160px]"
-        :style="{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }"
+        class="z-50 bg-gray-900 border border-gray-700 rounded-lg shadow-xl py-1 min-w-[180px]"
+        :style="menuStyle(contextMenu.x, contextMenu.y)"
+        @click.stop
       >
-        <div
-          class="px-3 py-1.5 text-[10px] text-gray-500 font-semibold uppercase tracking-wider"
-        >
-          Add Node
-        </div>
-        <button
-          v-for="node in addableNodes"
-          :key="node.type"
-          class="w-full text-left px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors"
-          @click.stop="addNodeFromMenu(node.type)"
-        >
-          {{ node.label }}
-        </button>
+        <template v-for="(node, i) in addableNodes" :key="node.type">
+          <div v-if="node.separator" class="h-px bg-gray-700 my-1" />
+          <button
+            class="w-full text-left mx-1 px-2 py-1.5 text-xs text-gray-300 hover:bg-gray-800/80 hover:text-white rounded-md transition-colors flex items-center gap-2"
+            style="width: calc(100% - 0.5rem)"
+            @click.stop="addNodeFromMenu(node.type)"
+          >
+            <component :is="node.icon" class="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
+            <span class="flex-1">{{ node.label }}</span>
+          </button>
+        </template>
       </div>
     </Teleport>
 
@@ -325,15 +368,36 @@ watch(
     <Teleport to="body">
       <div
         v-if="edgeContextMenu.show"
-        class="fixed z-50 bg-gray-900 border border-gray-700 rounded-lg shadow-xl py-1 min-w-[140px]"
-        :style="{ left: `${edgeContextMenu.x}px`, top: `${edgeContextMenu.y}px` }"
+        class="z-50 bg-gray-900 border border-gray-700 rounded-lg shadow-xl py-1 min-w-[180px]"
+        :style="menuStyle(edgeContextMenu.x, edgeContextMenu.y)"
         @click.stop
       >
         <button
-          class="w-full text-left px-3 py-1.5 text-sm text-red-400 hover:bg-gray-700 hover:text-red-300 transition-colors"
+          class="w-full text-left mx-1 px-2 py-1.5 text-xs text-red-400 hover:bg-gray-800/80 hover:text-red-300 rounded-md transition-colors flex items-center gap-2"
+          style="width: calc(100% - 0.5rem)"
           @click.stop="deleteEdgeFromMenu"
         >
-          Delete Edge
+          <TrashIcon class="w-3.5 h-3.5 flex-shrink-0" />
+          <span class="flex-1">Delete Edge</span>
+        </button>
+      </div>
+    </Teleport>
+
+    <!-- Node context menu -->
+    <Teleport to="body">
+      <div
+        v-if="nodeContextMenu.show"
+        class="z-50 bg-gray-900 border border-gray-700 rounded-lg shadow-xl py-1 min-w-[180px]"
+        :style="menuStyle(nodeContextMenu.x, nodeContextMenu.y)"
+        @click.stop
+      >
+        <button
+          class="w-full text-left mx-1 px-2 py-1.5 text-xs text-red-400 hover:bg-gray-800/80 hover:text-red-300 rounded-md transition-colors flex items-center gap-2"
+          style="width: calc(100% - 0.5rem)"
+          @click.stop="deleteNodeFromMenu"
+        >
+          <TrashIcon class="w-3.5 h-3.5 flex-shrink-0" />
+          <span class="flex-1">Delete Node</span>
         </button>
       </div>
     </Teleport>
