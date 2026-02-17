@@ -132,16 +132,6 @@ export const usePipelineStore = defineStore('pipeline', () => {
     isDirty.value = true
     invalidateDownstream(nodeId)
     updateNodeState(nodeId, { output: { asset: frame }, status: 'done', cacheKey: null })
-
-    // Auto-spawn a new empty input node if all input nodes now have images
-    const inputNodeIds = nodes.value.filter(n => n.type === 'input').map(n => n.id)
-    const hasEmpty = inputNodeIds.some(id => !inputImages.value.has(id))
-    if (!hasEmpty) {
-      const currentNode = nodes.value.find(n => n.id === nodeId)
-      const y = currentNode ? currentNode.position.y + 250 : 200
-      const x = currentNode ? currentNode.position.x : 60
-      addNode('input', { x, y })
-    }
   }
 
   function addNode(type: NodeType, position: { x: number; y: number }) {

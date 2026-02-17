@@ -81,7 +81,8 @@ export function validatePipeline(nodes: NodeDef[], edges: EdgeDef[]): Validation
 
   for (const node of nodes) {
     if (node.type === 'input' && !sourceIds.has(node.id)) {
-      errors.push({ nodeId: node.id, message: `Input node "${node.id}" has no outgoing connection` })
+      // Unconnected input nodes are OK — just skip them during execution
+      continue
     }
     if (node.type === 'output' && !targetIds.has(node.id)) {
       errors.push({ nodeId: node.id, message: `Output node "${node.id}" has no incoming connection` })
