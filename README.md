@@ -14,9 +14,10 @@ import { PipeMagic } from "pipemagic";
 const pm = new PipeMagic();
 const result = await pm.run(
   pipeline, // create these with the Node Editor
-  imageFile,
+  imageFile, // or { "Input 1": file1, "Input 2": file2 } for multi-input pipelines
 );
 // result.blob → output PNG
+// result.outputs → all outputs keyed by label
 ```
 
 ## Supported Nodes
