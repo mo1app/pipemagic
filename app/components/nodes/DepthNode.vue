@@ -14,7 +14,7 @@ const modelLabel = computed(() => {
 </script>
 
 <template>
-  <BaseNode :id="id" :label="label || 'Estimate Depth'" :has-input="true" :has-output="true" :icon="EyeIcon">
+  <BaseNode :id="id" :label="label || 'Estimate Depth'" node-type="depth" :icon="EyeIcon">
     <div class="text-xs text-gray-400 space-y-1">
       <div class="flex justify-between">
         <span>Model</span>

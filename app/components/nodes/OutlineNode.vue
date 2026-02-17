@@ -10,7 +10,7 @@ const state = computed(() => store.getNodeState(props.id))
 </script>
 
 <template>
-  <BaseNode :id="id" :label="label || 'Outline'" :has-input="true" :has-output="true" :icon="PaintBrushIcon">
+  <BaseNode :id="id" :label="label || 'Outline'" node-type="outline" :icon="PaintBrushIcon">
     <div class="text-xs text-gray-400 space-y-1">
       <div class="flex justify-between">
         <span>Thickness</span>

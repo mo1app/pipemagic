@@ -10,7 +10,7 @@ const state = computed(() => store.getNodeState(props.id))
 </script>
 
 <template>
-  <BaseNode :id="id" :label="label || 'Normalize'" :has-input="true" :has-output="true" :icon="ArrowsPointingInIcon">
+  <BaseNode :id="id" :label="label || 'Normalize'" node-type="normalize" :icon="ArrowsPointingInIcon">
     <div class="text-xs text-gray-400 space-y-1">
       <div class="flex justify-between">
         <span>Size</span>

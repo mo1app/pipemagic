@@ -31,6 +31,40 @@ const result = await pm.run(pipeline, imageFile, {
 // result.width, result.height → dimensions
 ```
 
+### Multiple inputs
+
+Pipelines with multiple input nodes accept a record keyed by node label or ID:
+
+```ts
+const result = await pm.run(pipeline, {
+  "Image Input": file1,
+  "Background": file2,
+});
+```
+
+Values can be `Blob`, `File`, or `ImageBitmap`. A single value (not a record) is still supported for pipelines with one input.
+
+### Multiple outputs
+
+`RunResult` includes all output nodes, keyed by label:
+
+```ts
+const result = await pm.run(pipeline, imageFile);
+
+// Primary output (first output node)
+result.blob; // Blob
+result.width;
+result.height;
+
+// All outputs by label
+for (const [label, entry] of Object.entries(result.outputs)) {
+  entry.asset; // Blob
+  entry.width;
+  entry.height;
+  entry.data; // optional structured data (e.g. spritesheet frame data)
+}
+```
+
 ## Pipeline Definition
 
 Pipelines are JSON graphs of nodes and edges. Each node has a type, parameters, and connects to other nodes via edges.
@@ -106,9 +140,20 @@ Face segmentation into 19 classes (skin, eyes, brows, nose, mouth, lips, ears, h
 | `model`       | `'cnn-2x-s' \| 'cnn-2x-m' \| 'cnn-2x-l'` | `'cnn-2x-s'` | Model size        |
 | `contentType` | `'rl' \| 'an' \| '3d'`                   | `'rl'`       | Content type hint |
 
+### `spritesheet`
+
+Composites multiple input images into a grid spritesheet. Accepts multiple connections on its `images` input handle. Outputs the combined image plus a JSON data object with per-frame positions and UV coordinates.
+
+| Param     | Type                 | Default         | Description                        |
+| --------- | -------------------- | --------------- | ---------------------------------- |
+| `columns` | `number \| 'auto'`   | `'auto'`        | Number of columns (auto = √n)      |
+| `rows`    | `number \| 'auto'`   | `'auto'`        | Number of rows (auto = ceil(n/cols))|
+| `gap`     | `number`             | `0`             | Gap between cells in pixels        |
+| `bgColor` | `string`             | `'transparent'` | Background color (hex or `'transparent'`) |
+
 ### `output`
 
-Encodes the final image as a Blob.
+Encodes the final image as a Blob. Also accepts an optional `data` input handle for passing through structured data (e.g. spritesheet frame coordinates).
 
 | Param     | Type                        | Default | Description         |
 | --------- | --------------------------- | ------- | ------------------- |
@@ -148,6 +193,7 @@ import {
   executeOutline,
   executeDepth,
   executeFaceParse,
+  executeSpritesheet,
   initGpu,
   getGpuDevice,
   createFrame,
@@ -167,6 +213,20 @@ const result = await executeRemoveBg(ctx, [inputFrame], {
   threshold: 0.5,
   device: "auto",
   dtype: "fp16",
+});
+```
+
+## Custom Executors
+
+Register custom node executors to extend the pipeline with your own processing steps:
+
+```ts
+import { registerExecutor } from "pipemagic";
+
+registerExecutor("my-node", async (ctx, inputs, params) => {
+  const image = inputs.asset; // ImageFrame
+  // ... process image ...
+  return { asset: outputFrame };
 });
 ```
 

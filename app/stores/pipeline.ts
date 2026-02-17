@@ -3,7 +3,7 @@ import { ref, computed, watch } from 'vue'
 import type { Node, Edge } from '@vue-flow/core'
 import { nanoid } from 'nanoid'
 import type { PipelineDefinition, NodeType, NodeDef, EdgeDef } from '~~/shared/types/pipeline'
-import type { NodeState } from '~~/shared/types/execution'
+import type { NodeState, NodeOutput } from '~~/shared/types/execution'
 import { createDefaultNodeState } from '~~/shared/types/execution'
 import { DEFAULT_PARAMS, type NodeParamsMap } from '~~/shared/types/node-params'
 import type { ImageFrame } from '~~/shared/types/image-frame'
@@ -17,8 +17,15 @@ export const usePipelineStore = defineStore('pipeline', () => {
   const edges = ref<Edge[]>([])
 
   // Selection
-  const selectedNodeId = ref<string | null>(null)
+  const selectedNodeIds = ref<string[]>([])
   const selectedEdgeId = ref<string | null>(null)
+
+  // Backward-compat: last selected node (used by inspector)
+  const selectedNodeId = computed(() =>
+    selectedNodeIds.value.length > 0
+      ? selectedNodeIds.value[selectedNodeIds.value.length - 1]
+      : null,
+  )
 
   // Execution state
   const isRunning = ref(false)
@@ -53,22 +60,21 @@ export const usePipelineStore = defineStore('pipeline', () => {
   const outputImage = computed<ImageFrame | null>(() => {
     const out = outputNode.value
     if (!out) return null
-    return nodeStates.value.get(out.id)?.output || null
+    return nodeStates.value.get(out.id)?.output?.asset || null
   })
 
   // Actions
-  function selectNode(nodeId: string | null) {
-    selectedNodeId.value = nodeId
-    if (nodeId) selectedEdgeId.value = null
-  }
-
   function selectEdge(edgeId: string | null) {
     // Sync Vue Flow's selected state on edge objects
     for (const e of edges.value) {
       e.selected = e.id === edgeId
     }
     selectedEdgeId.value = edgeId
-    if (edgeId) selectedNodeId.value = null
+    if (edgeId) {
+      // Deselect all nodes via Vue Flow's selected property
+      for (const n of nodes.value) n.selected = false
+      selectedNodeIds.value = []
+    }
   }
 
   function removeEdge(edgeId: string) {
@@ -106,9 +112,9 @@ export const usePipelineStore = defineStore('pipeline', () => {
     const edgeDefs = edges.value.map(e => ({
       id: e.id,
       source: e.source,
-      sourceHandle: e.sourceHandle || 'output',
+      sourceHandle: e.sourceHandle || 'asset',
       target: e.target,
-      targetHandle: e.targetHandle || 'input',
+      targetHandle: e.targetHandle || 'asset',
     })) as EdgeDef[]
     for (const id of getDownstreamNodes(nodeId, edgeDefs)) {
       invalidateNode(id)
@@ -131,7 +137,7 @@ export const usePipelineStore = defineStore('pipeline', () => {
     inputImages.value = new Map(inputImages.value)
     isDirty.value = true
     invalidateDownstream(nodeId)
-    updateNodeState(nodeId, { output: frame, status: 'done', cacheKey: null })
+    updateNodeState(nodeId, { output: { asset: frame }, status: 'done', cacheKey: null })
   }
 
   function addNode(type: NodeType, position: { x: number; y: number }) {
@@ -146,7 +152,11 @@ export const usePipelineStore = defineStore('pipeline', () => {
       'outline': 'Outline',
       'depth': 'Estimate Depth',
       'face-parse': 'Face Parse',
+      'spritesheet': 'Spritesheet',
     }
+
+    // Deselect all existing nodes
+    for (const n of nodes.value) n.selected = false
 
     nodes.value.push({
       id,
@@ -154,28 +164,36 @@ export const usePipelineStore = defineStore('pipeline', () => {
       position,
       label: labels[type],
       data: { params },
+      selected: true,
     } as Node)
 
     isDirty.value = true
-    selectedNodeId.value = id
+    selectedNodeIds.value = [id]
     return id
   }
 
   function removeNode(nodeId: string) {
     const node = nodes.value.find(n => n.id === nodeId)
     if (!node) return
-    // Prevent deleting input/output nodes
-    if (node.type === 'input' || node.type === 'output') return
+    // Prevent deleting the last input or last output node
+    if (node.type === 'input' && nodes.value.filter(n => n.type === 'input').length <= 1) return
+    if (node.type === 'output' && nodes.value.filter(n => n.type === 'output').length <= 1) return
 
     nodes.value = nodes.value.filter(n => n.id !== nodeId)
     edges.value = edges.value.filter(e => e.source !== nodeId && e.target !== nodeId)
     nodeStates.value.delete(nodeId)
     nodeStates.value = new Map(nodeStates.value)
 
-    if (selectedNodeId.value === nodeId) {
-      selectedNodeId.value = null
-    }
+    selectedNodeIds.value = selectedNodeIds.value.filter(id => id !== nodeId)
     isDirty.value = true
+  }
+
+  function removeSelectedNodes() {
+    // Copy the array since removeNode mutates selectedNodeIds
+    const ids = [...selectedNodeIds.value]
+    for (const id of ids) {
+      removeNode(id)
+    }
   }
 
   function clearExecution() {
@@ -185,7 +203,7 @@ export const usePipelineStore = defineStore('pipeline', () => {
     nodeStates.value = new Map(nodeStates.value)
     // Preserve input images
     for (const [id, frame] of inputImages.value) {
-      updateNodeState(id, { output: frame, status: 'done' })
+      updateNodeState(id, { output: { asset: frame }, status: 'done' })
     }
   }
 
@@ -243,11 +261,11 @@ export const usePipelineStore = defineStore('pipeline', () => {
     ] as Node[]
 
     edges.value = [
-      { id: nanoid(8), source: inputId, target: removeBgId, sourceHandle: 'output', targetHandle: 'input' },
-      { id: nanoid(8), source: removeBgId, target: normalizeId, sourceHandle: 'output', targetHandle: 'input' },
-      { id: nanoid(8), source: normalizeId, target: outlineId, sourceHandle: 'output', targetHandle: 'input' },
-      { id: nanoid(8), source: outlineId, target: upscaleId, sourceHandle: 'output', targetHandle: 'input' },
-      { id: nanoid(8), source: upscaleId, target: outputId, sourceHandle: 'output', targetHandle: 'input' },
+      { id: nanoid(8), source: inputId, target: removeBgId, sourceHandle: 'asset', targetHandle: 'asset' },
+      { id: nanoid(8), source: removeBgId, target: normalizeId, sourceHandle: 'asset', targetHandle: 'asset' },
+      { id: nanoid(8), source: normalizeId, target: outlineId, sourceHandle: 'asset', targetHandle: 'asset' },
+      { id: nanoid(8), source: outlineId, target: upscaleId, sourceHandle: 'asset', targetHandle: 'asset' },
+      { id: nanoid(8), source: upscaleId, target: outputId, sourceHandle: 'asset', targetHandle: 'asset' },
     ] as Edge[]
 
     nodeStates.value = new Map()
@@ -255,14 +273,14 @@ export const usePipelineStore = defineStore('pipeline', () => {
     fileHandle.value = null
     fileName.value = null
     isDirty.value = false
-    selectedNodeId.value = null
+    selectedNodeIds.value = []
     selectedEdgeId.value = null
     pipelineLoadCount.value++
   }
 
   function serializePipeline(): PipelineDefinition {
     return {
-      version: 1,
+      version: 2,
       nodes: nodes.value.map(n => ({
         id: n.id,
         type: n.type as NodeType,
@@ -273,9 +291,9 @@ export const usePipelineStore = defineStore('pipeline', () => {
       edges: edges.value.map(e => ({
         id: e.id,
         source: e.source,
-        sourceHandle: e.sourceHandle || 'output',
+        sourceHandle: e.sourceHandle || 'asset',
         target: e.target,
-        targetHandle: e.targetHandle || 'input',
+        targetHandle: e.targetHandle || 'asset',
       })),
     }
   }
@@ -292,12 +310,13 @@ export const usePipelineStore = defineStore('pipeline', () => {
       data: { params: n.params },
     })) as Node[]
 
+    // Migrate v1 handle names: "output" → "asset", "input" → "asset"
     edges.value = def.edges.map(e => ({
       id: e.id,
       source: e.source,
-      sourceHandle: e.sourceHandle,
+      sourceHandle: e.sourceHandle === 'output' ? 'asset' : e.sourceHandle,
       target: e.target,
-      targetHandle: e.targetHandle,
+      targetHandle: e.targetHandle === 'input' ? 'asset' : e.targetHandle,
     })) as Edge[]
 
     nodeStates.value = new Map()
@@ -310,7 +329,7 @@ export const usePipelineStore = defineStore('pipeline', () => {
           inputImages.value.set(node.id, previousImage)
           nodeStates.value.set(node.id, {
             ...createDefaultNodeState(),
-            output: previousImage,
+            output: { asset: previousImage },
             status: 'done',
           })
         }
@@ -320,7 +339,7 @@ export const usePipelineStore = defineStore('pipeline', () => {
     }
 
     isDirty.value = false
-    selectedNodeId.value = null
+    selectedNodeIds.value = []
     selectedEdgeId.value = null
     pipelineLoadCount.value++
   }
@@ -353,7 +372,7 @@ export const usePipelineStore = defineStore('pipeline', () => {
     // State
     nodes,
     edges,
-    selectedNodeId,
+    selectedNodeIds,
     selectedEdgeId,
     isRunning,
     hasRun,
@@ -365,12 +384,12 @@ export const usePipelineStore = defineStore('pipeline', () => {
     isDirty,
     pipelineLoadCount,
     // Computed
+    selectedNodeId,
     selectedNode,
     selectedNodeState,
     outputNode,
     outputImage,
     // Actions
-    selectNode,
     selectEdge,
     removeEdge,
     getNodeState,
@@ -379,6 +398,7 @@ export const usePipelineStore = defineStore('pipeline', () => {
     setInputImage,
     addNode,
     removeNode,
+    removeSelectedNodes,
     clearExecution,
     loadDefaultPipeline,
     serializePipeline,

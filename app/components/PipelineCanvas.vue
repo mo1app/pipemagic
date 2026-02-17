@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { VueFlow, useVueFlow } from "@vue-flow/core";
+import { VueFlow, useVueFlow, SelectionMode } from "@vue-flow/core";
 import { Background } from "@vue-flow/background";
 import { Controls } from "@vue-flow/controls";
 import { MiniMap } from "@vue-flow/minimap";
@@ -10,8 +10,22 @@ import "@vue-flow/minimap/dist/style.css";
 import { markRaw } from "vue";
 import { nanoid } from "nanoid";
 import { useElementSize } from "@vueuse/core";
+import {
+  PhotoIcon,
+  ArrowDownTrayIcon,
+  ScissorsIcon,
+  ArrowsPointingInIcon,
+  ArrowsPointingOutIcon,
+  PaintBrushIcon,
+  EyeIcon,
+  UserIcon,
+  Squares2X2Icon,
+  TrashIcon,
+} from "@heroicons/vue/20/solid";
 import { usePipelineStore } from "~/stores/pipeline";
+import { getHandleDefs, fileToBitmap, resizeBitmap } from "pipemagic";
 import type { NodeType } from "~~/shared/types/pipeline";
+import type { Connection } from "@vue-flow/core";
 
 import InputNode from "~/components/nodes/InputNode.vue";
 import OutputNode from "~/components/nodes/OutputNode.vue";
@@ -21,6 +35,7 @@ import NormalizeNode from "~/components/nodes/NormalizeNode.vue";
 import OutlineNode from "~/components/nodes/OutlineNode.vue";
 import DepthNode from "~/components/nodes/DepthNode.vue";
 import FaceParseNode from "~/components/nodes/FaceParseNode.vue";
+import SpritesheetNode from "~/components/nodes/SpritesheetNode.vue";
 
 const nodeTypes = {
   input: markRaw(InputNode),
@@ -31,6 +46,7 @@ const nodeTypes = {
   outline: markRaw(OutlineNode),
   depth: markRaw(DepthNode),
   "face-parse": markRaw(FaceParseNode),
+  spritesheet: markRaw(SpritesheetNode),
 };
 
 const store = usePipelineStore();
@@ -51,6 +67,7 @@ const minimapH = computed(() => {
 
 const {
   onNodeClick,
+  onNodeContextMenu,
   onPaneClick,
   onConnect,
   onEdgeClick,
@@ -62,12 +79,19 @@ const {
   project,
   setCenter,
   getViewport,
+  getSelectedNodes,
   fitView,
 } = useVueFlow();
 
-// Sync selection
-onNodeClick(({ node }) => {
-  store.selectNode(node.id);
+// Sync Vue Flow selection → store
+watch(getSelectedNodes, (selectedNodes) => {
+  store.selectedNodeIds = selectedNodes.map((n) => n.id);
+  if (selectedNodes.length > 0) store.selectEdge(null);
+});
+
+onNodeClick(() => {
+  // Clear edge selection when a node is clicked; Vue Flow handles node selection
+  store.selectEdge(null);
 });
 
 onEdgeClick(({ edge }) => {
@@ -75,18 +99,21 @@ onEdgeClick(({ edge }) => {
 });
 
 onPaneClick(() => {
-  store.selectNode(null);
   store.selectEdge(null);
 });
 
 // Handle new connections
 onConnect((connection) => {
+  if (!connection.source || !connection.target) return;
+  // Validate connection before adding
+  if (!isValidConnection(connection)) return;
+
   store.edges.push({
     id: nanoid(8),
     source: connection.source,
-    sourceHandle: connection.sourceHandle || "output",
+    sourceHandle: connection.sourceHandle || "asset",
     target: connection.target,
-    targetHandle: connection.targetHandle || "input",
+    targetHandle: connection.targetHandle || "asset",
   } as any);
   store.isDirty = true;
 });
@@ -109,11 +136,44 @@ function deleteEdgeFromMenu() {
   edgeContextMenu.value.show = false;
 }
 
-// Close edge context menu when selection changes
+// Node context menu (right-click)
+const nodeContextMenu = ref<{ x: number; y: number; nodeId: string; show: boolean }>({
+  x: 0,
+  y: 0,
+  nodeId: "",
+  show: false,
+});
+
+onNodeContextMenu(({ event, node }) => {
+  event.preventDefault();
+  // If the right-clicked node isn't in the current selection, make it the sole selection
+  if (!store.selectedNodeIds.includes(node.id)) {
+    for (const n of store.nodes) n.selected = n.id === node.id;
+    store.selectedNodeIds = [node.id];
+  }
+  nodeContextMenu.value = { x: event.clientX, y: event.clientY, nodeId: node.id, show: true };
+});
+
+const nodeContextMenuLabel = computed(() => {
+  const count = store.selectedNodeIds.length;
+  return count > 1 ? `Delete ${count} Nodes` : "Delete Node";
+});
+
+function deleteNodeFromMenu() {
+  if (store.selectedNodeIds.length > 1) {
+    store.removeSelectedNodes();
+  } else {
+    store.removeNode(nodeContextMenu.value.nodeId);
+  }
+  nodeContextMenu.value.show = false;
+}
+
+// Close context menus when selection changes
 watch(
-  () => [store.selectedNodeId, store.selectedEdgeId],
+  () => [store.selectedNodeIds, store.selectedEdgeId],
   () => {
     edgeContextMenu.value.show = false;
+    nodeContextMenu.value.show = false;
   },
 );
 
@@ -131,9 +191,9 @@ onEdgeUpdate(({ edge, connection }) => {
   store.edges.push({
     id: nanoid(8),
     source: connection.source,
-    sourceHandle: connection.sourceHandle || "output",
+    sourceHandle: connection.sourceHandle || "asset",
     target: connection.target,
-    targetHandle: connection.targetHandle || "input",
+    targetHandle: connection.targetHandle || "asset",
   } as any);
   store.isDirty = true;
 });
@@ -144,6 +204,36 @@ onEdgeUpdateEnd(({ edge }) => {
   }
 });
 
+// Connection validation: check data type compatibility
+function isValidConnection(connection: Connection) {
+  const sourceNode = store.nodes.find((n: any) => n.id === connection.source);
+  const targetNode = store.nodes.find((n: any) => n.id === connection.target);
+  if (!sourceNode || !targetNode) return false;
+
+  const sourceDefs = getHandleDefs(sourceNode.type as NodeType);
+  const targetDefs = getHandleDefs(targetNode.type as NodeType);
+
+  const sourceHandle = sourceDefs.sources.find(
+    (h) => h.id === (connection.sourceHandle || "asset"),
+  );
+  const targetHandle = targetDefs.targets.find(
+    (h) => h.id === (connection.targetHandle || "asset"),
+  );
+
+  if (!sourceHandle || !targetHandle) return false;
+  if (sourceHandle.dataType !== targetHandle.dataType) return false;
+
+  // Block multiple connections to the same non-multi target handle
+  if (!targetHandle.multi) {
+    const targetHandleId = connection.targetHandle || "asset";
+    const alreadyConnected = store.edges.some(
+      (e: any) => e.target === connection.target && e.targetHandle === targetHandleId,
+    );
+    if (alreadyConnected) return false;
+  }
+
+  return true;
+}
 // Context menu for adding nodes
 const contextMenu = ref<{ x: number; y: number; show: boolean }>({
   x: 0,
@@ -151,17 +241,27 @@ const contextMenu = ref<{ x: number; y: number; show: boolean }>({
   show: false,
 });
 
-const addableNodes: { type: NodeType; label: string }[] = [
-  { type: "remove-bg", label: "Remove BG" },
-  { type: "normalize", label: "Normalize" },
-  { type: "outline", label: "Outline" },
-  { type: "upscale", label: "Upscale 2x" },
-  { type: "depth", label: "Estimate Depth" },
-  { type: "face-parse", label: "Face Parse" },
+const addableNodes: { type: NodeType; label: string; icon: Component; separator?: boolean }[] = [
+  { type: "input", label: "Image Input", icon: PhotoIcon },
+  { type: "output", label: "Output", icon: ArrowDownTrayIcon },
+  { type: "remove-bg", label: "Remove BG", icon: ScissorsIcon, separator: true },
+  { type: "normalize", label: "Normalize", icon: ArrowsPointingInIcon },
+  { type: "outline", label: "Outline", icon: PaintBrushIcon },
+  { type: "upscale", label: "Upscale 2x", icon: ArrowsPointingOutIcon },
+  { type: "depth", label: "Estimate Depth", icon: EyeIcon },
+  { type: "face-parse", label: "Face Parse", icon: UserIcon },
+  { type: "spritesheet", label: "Spritesheet", icon: Squares2X2Icon },
 ];
 
 function onPaneContextMenu(event: MouseEvent) {
   event.preventDefault();
+  contextMenu.value = { x: event.clientX, y: event.clientY, show: true };
+}
+
+function onCanvasContextMenu(event: MouseEvent) {
+  // Only show add-node menu if not clicking on a node or edge (those have their own menus)
+  const target = event.target as HTMLElement;
+  if (target.closest('.vue-flow__node') || target.closest('.vue-flow__edge')) return;
   contextMenu.value = { x: event.clientX, y: event.clientY, show: true };
 }
 
@@ -174,6 +274,23 @@ function addNodeFromMenu(type: NodeType) {
 function closeContextMenu() {
   contextMenu.value.show = false;
   edgeContextMenu.value.show = false;
+  nodeContextMenu.value.show = false;
+}
+
+// Position context menus so they don't overflow the viewport
+function menuStyle(x: number, y: number) {
+  const style: Record<string, string> = { position: 'fixed', left: `${x}px`, top: `${y}px` }
+  // Flip upward if near bottom (estimate ~300px max menu height)
+  if (y + 300 > window.innerHeight) {
+    style.top = ''
+    style.bottom = `${window.innerHeight - y}px`
+  }
+  // Flip left if near right edge
+  if (x + 200 > window.innerWidth) {
+    style.left = ''
+    style.right = `${window.innerWidth - x}px`
+  }
+  return style
 }
 
 onMoveStart(closeContextMenu);
@@ -216,10 +333,66 @@ watch(
     });
   },
 );
+
+// Canvas-level multi-file drop handler
+async function onCanvasDrop(e: DragEvent) {
+  e.preventDefault();
+  // Don't handle drops that land on a node — let the node's own handler deal with it
+  if ((e.target as HTMLElement).closest(".vue-flow__node")) return;
+
+  const files = [...(e.dataTransfer?.files || [])].filter((f) =>
+    f.type.startsWith("image/"),
+  );
+  if (!files.length) return;
+
+  // Get existing input nodes sorted by vertical position (top → bottom)
+  const inputNodes = store.nodes
+    .filter((n: any) => n.type === "input")
+    .sort((a: any, b: any) => a.position.y - b.position.y);
+
+  // Build assignment list: pair each file with a node ID
+  // Assign to existing inputs first, then create new nodes for overflow
+  const assignments: { nodeId: string; file: File }[] = [];
+  for (let i = 0; i < files.length; i++) {
+    let nodeId: string;
+    if (i < inputNodes.length) {
+      nodeId = inputNodes[i].id;
+    } else {
+      const refNode =
+        inputNodes[inputNodes.length - 1] ||
+        store.nodes[store.nodes.length - 1];
+      const refPos = refNode
+        ? refNode.position
+        : { x: 60, y: -20 };
+      const yOffset = 200 * (i - inputNodes.length + 1);
+      nodeId = store.addNode("input", {
+        x: refPos.x,
+        y: refPos.y + yOffset,
+      });
+    }
+    assignments.push({ nodeId, file: files[i] });
+  }
+
+  // Process all files → load images into the assigned nodes
+  for (const { nodeId, file } of assignments) {
+    const node = store.nodes.find((n: any) => n.id === nodeId);
+    const params = (node?.data as any)?.params || {};
+    const bitmap = await fileToBitmap(file);
+    const maxSize = (params.maxSize as number) || 2048;
+    const fit = (params.fit as "contain" | "cover" | "fill") || "contain";
+    const resized = await resizeBitmap(bitmap, maxSize, fit);
+    store.setInputImage(nodeId, {
+      bitmap: resized,
+      width: resized.width,
+      height: resized.height,
+      revision: Date.now(),
+    });
+  }
+}
 </script>
 
 <template>
-  <div ref="containerRef" class="w-full h-full" @click="closeContextMenu">
+  <div ref="containerRef" class="w-full h-full" @click="closeContextMenu" @contextmenu.prevent="onCanvasContextMenu" @dragover.prevent @drop="onCanvasDrop">
     <VueFlow
       v-model:nodes="store.nodes"
       v-model:edges="store.edges"
@@ -231,6 +404,9 @@ watch(
       :max-zoom="2"
       :edges-updatable="true"
       :delete-key-code="null"
+      :multi-selection-key-code="'Shift'"
+      :selection-key-code="'Shift'"
+      :selection-mode="SelectionMode.Partial"
       fit-view-on-init
       @pane-contextmenu="onPaneContextMenu"
     >
@@ -249,22 +425,21 @@ watch(
     <Teleport to="body">
       <div
         v-if="contextMenu.show"
-        class="fixed z-50 bg-gray-1200 border border-gray-700 rounded-lg shadow-xl py-1 min-w-[160px]"
-        :style="{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }"
+        class="z-50 bg-gray-900 border border-gray-700 rounded-lg shadow-xl py-1 min-w-[180px]"
+        :style="menuStyle(contextMenu.x, contextMenu.y)"
+        @click.stop
       >
-        <div
-          class="px-3 py-1.5 text-[10px] text-gray-500 font-semibold uppercase tracking-wider"
-        >
-          Add Node
-        </div>
-        <button
-          v-for="node in addableNodes"
-          :key="node.type"
-          class="w-full text-left px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors"
-          @click.stop="addNodeFromMenu(node.type)"
-        >
-          {{ node.label }}
-        </button>
+        <template v-for="(node, i) in addableNodes" :key="node.type">
+          <div v-if="node.separator" class="h-px bg-gray-700 my-1" />
+          <button
+            class="w-full text-left mx-1 px-2 py-1.5 text-xs text-gray-300 hover:bg-gray-800/80 hover:text-white rounded-md transition-colors flex items-center gap-2"
+            style="width: calc(100% - 0.5rem)"
+            @click.stop="addNodeFromMenu(node.type)"
+          >
+            <component :is="node.icon" class="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
+            <span class="flex-1">{{ node.label }}</span>
+          </button>
+        </template>
       </div>
     </Teleport>
 
@@ -272,15 +447,36 @@ watch(
     <Teleport to="body">
       <div
         v-if="edgeContextMenu.show"
-        class="fixed z-50 bg-gray-900 border border-gray-700 rounded-lg shadow-xl py-1 min-w-[140px]"
-        :style="{ left: `${edgeContextMenu.x}px`, top: `${edgeContextMenu.y}px` }"
+        class="z-50 bg-gray-900 border border-gray-700 rounded-lg shadow-xl py-1 min-w-[180px]"
+        :style="menuStyle(edgeContextMenu.x, edgeContextMenu.y)"
         @click.stop
       >
         <button
-          class="w-full text-left px-3 py-1.5 text-sm text-red-400 hover:bg-gray-700 hover:text-red-300 transition-colors"
+          class="w-full text-left mx-1 px-2 py-1.5 text-xs text-red-400 hover:bg-gray-800/80 hover:text-red-300 rounded-md transition-colors flex items-center gap-2"
+          style="width: calc(100% - 0.5rem)"
           @click.stop="deleteEdgeFromMenu"
         >
-          Delete Edge
+          <TrashIcon class="w-3.5 h-3.5 flex-shrink-0" />
+          <span class="flex-1">Delete Edge</span>
+        </button>
+      </div>
+    </Teleport>
+
+    <!-- Node context menu -->
+    <Teleport to="body">
+      <div
+        v-if="nodeContextMenu.show"
+        class="z-50 bg-gray-900 border border-gray-700 rounded-lg shadow-xl py-1 min-w-[180px]"
+        :style="menuStyle(nodeContextMenu.x, nodeContextMenu.y)"
+        @click.stop
+      >
+        <button
+          class="w-full text-left mx-1 px-2 py-1.5 text-xs text-red-400 hover:bg-gray-800/80 hover:text-red-300 rounded-md transition-colors flex items-center gap-2"
+          style="width: calc(100% - 0.5rem)"
+          @click.stop="deleteNodeFromMenu"
+        >
+          <TrashIcon class="w-3.5 h-3.5 flex-shrink-0" />
+          <span class="flex-1">{{ nodeContextMenuLabel }}</span>
         </button>
       </div>
     </Teleport>

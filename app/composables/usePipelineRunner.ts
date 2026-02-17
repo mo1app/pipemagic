@@ -4,7 +4,8 @@ import {
   getGpuDevice,
   createFrame,
   topoSort,
-  getUpstreamNodes,
+  getUpstreamEdges,
+  getHandleDefs,
   validatePipeline,
   computeCacheKey,
   resizeBitmap,
@@ -14,17 +15,27 @@ import {
   executeOutline,
   executeDepth,
   executeFaceParse,
+  executeSpritesheet,
 } from 'pipemagic'
 import type {
   NodeType,
   NodeDef,
   EdgeDef,
   ImageFrame,
+  NodeOutput,
   ExecutionContext,
+  LegacyNodeExecutor,
   NodeExecutor,
 } from 'pipemagic'
 
-const executors: Record<string, NodeExecutor> = {
+function wrapExecutor(fn: LegacyNodeExecutor): NodeExecutor {
+  return async (ctx, inputs, params) => {
+    const flat = Object.values(inputs).flat() as ImageFrame[]
+    return { asset: await fn(ctx, flat, params) }
+  }
+}
+
+const legacyExecutors: Record<string, LegacyNodeExecutor> = {
   'remove-bg': executeRemoveBg,
   'normalize': executeNormalize,
   'upscale': executeUpscale,
@@ -33,25 +44,32 @@ const executors: Record<string, NodeExecutor> = {
   'face-parse': executeFaceParse,
 }
 
+const executors: Record<string, NodeExecutor> = {
+  'spritesheet': executeSpritesheet,
+}
+for (const [key, fn] of Object.entries(legacyExecutors)) {
+  executors[key] = wrapExecutor(fn)
+}
+
 export function usePipelineRunner() {
   const store = usePipelineStore()
   const runError = ref<string | null>(null)
 
   async function run() {
     // Validate
-    const nodeDefs = store.nodes.map(n => ({
+    const nodeDefs = store.nodes.map((n: any) => ({
       id: n.id,
       type: n.type as NodeType,
       position: n.position,
       params: n.data?.params || {},
     })) as NodeDef[]
 
-    const edgeDefs = store.edges.map(e => ({
+    const edgeDefs = store.edges.map((e: any) => ({
       id: e.id,
       source: e.source,
-      sourceHandle: e.sourceHandle || 'output',
+      sourceHandle: e.sourceHandle || 'asset',
       target: e.target,
-      targetHandle: e.targetHandle || 'input',
+      targetHandle: e.targetHandle || 'asset',
     })) as EdgeDef[]
 
     const errors = validatePipeline(nodeDefs, edgeDefs)
@@ -63,7 +81,7 @@ export function usePipelineRunner() {
     }
 
     // Check input images
-    const inputNodes = store.nodes.filter(n => n.type === 'input')
+    const inputNodes = store.nodes.filter((n: any) => n.type === 'input')
     for (const inputNode of inputNodes) {
       if (!store.inputImages.has(inputNode.id)) {
         runError.value = 'Please add an image to the Input node before running.'
@@ -115,23 +133,39 @@ export function usePipelineRunner() {
       for (const nodeId of order) {
         if (abortController.signal.aborted) break
 
-        const node = store.nodes.find(n => n.id === nodeId)
+        const node = store.nodes.find((n: any) => n.id === nodeId)
         if (!node) continue
 
         const nodeType = node.type as NodeType
         const params = node.data?.params || {}
         console.log(`[pipeline] executing node ${nodeId} (${nodeType})`)
 
-        // Gather inputs from upstream nodes
-        const upstreamIds = getUpstreamNodes(nodeId, edgeDefs)
-        const inputs: ImageFrame[] = []
-        const inputRevisions: number[] = []
+        // Handle-aware input gathering
+        const upstreamEdges = getUpstreamEdges(nodeId, edgeDefs)
+        const handleDefs = getHandleDefs(nodeType)
+        const inputs: Record<string, ImageFrame | ImageFrame[]> = {}
+        const inputRevisions: Record<string, number[]> = {}
 
-        for (const upId of upstreamIds) {
-          const upState = store.getNodeState(upId)
-          if (upState.output) {
-            inputs.push(upState.output)
-            inputRevisions.push(upState.output.revision)
+        for (const edge of upstreamEdges) {
+          const upState = store.getNodeState(edge.source)
+          if (!upState.output) continue
+
+          const sourceOutput = upState.output[edge.sourceHandle] as ImageFrame | undefined
+          if (!sourceOutput) continue
+
+          const targetHandle = edge.targetHandle
+          const handleDef = handleDefs.targets.find(h => h.id === targetHandle)
+
+          if (handleDef?.multi) {
+            if (!inputs[targetHandle]) {
+              inputs[targetHandle] = []
+              inputRevisions[targetHandle] = []
+            }
+            ;(inputs[targetHandle] as ImageFrame[]).push(sourceOutput)
+            ;(inputRevisions[targetHandle] as number[]).push(sourceOutput.revision)
+          } else {
+            inputs[targetHandle] = sourceOutput
+            inputRevisions[targetHandle] = [sourceOutput.revision]
           }
         }
 
@@ -147,7 +181,7 @@ export function usePipelineRunner() {
         store.updateNodeState(nodeId, { status: 'running', progress: 0 })
 
         try {
-          let output: ImageFrame
+          let output: NodeOutput
 
           if (nodeType === 'input') {
             // Input node: just pass through the stored image
@@ -156,16 +190,19 @@ export function usePipelineRunner() {
             const maxSize = (params.maxSize as number) || 2048
             const fit = (params.fit as 'contain' | 'cover' | 'fill') || 'contain'
             const resized = await resizeBitmap(frame.bitmap, maxSize, fit)
-            output = createFrame(resized)
+            output = { asset: createFrame(resized) }
           } else if (nodeType === 'output') {
-            // Output node: pass through the first input
-            if (inputs.length === 0) throw new Error('No input to output node')
-            output = inputs[0]
+            // Output node: pass through inputs
+            const assetInput = inputs.asset as ImageFrame | undefined
+            if (!assetInput) throw new Error('No input to output node')
+            output = { asset: assetInput }
+            if (inputs.data) output.data = inputs.data
           } else {
             // Processing node
             const executor = executors[nodeType]
             if (!executor) throw new Error(`No executor for node type: ${nodeType}`)
-            if (inputs.length === 0) throw new Error('No input image')
+            const hasInputs = Object.keys(inputs).length > 0
+            if (!hasInputs) throw new Error('No input image')
             // Create per-node context with correct nodeId in progress callback
             const nodeCtx: ExecutionContext = {
               ...ctx,

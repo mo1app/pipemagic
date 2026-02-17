@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { Handle, Position } from '@vue-flow/core'
 import { usePipelineStore } from '~/stores/pipeline'
+import { getHandleDefs } from 'pipemagic'
+import type { NodeType } from '~~/shared/types/pipeline'
 
 const props = defineProps<{
   id: string
   label: string
-  hasInput?: boolean
-  hasOutput?: boolean
+  nodeType: NodeType
   hidePreview?: boolean
   color?: string
   icon?: Component
@@ -14,6 +15,15 @@ const props = defineProps<{
 
 const store = usePipelineStore()
 const state = computed(() => store.getNodeState(props.id))
+
+const handleDefs = computed(() => getHandleDefs(props.nodeType))
+const targetHandles = computed(() => handleDefs.value.targets)
+const sourceHandles = computed(() => handleDefs.value.sources)
+
+function handlePosition(index: number, total: number): string {
+  if (total === 1) return '50%'
+  return `${((index + 1) / (total + 1)) * 100}%`
+}
 
 const statusColor = computed(() => {
   switch (state.value.status) {
@@ -26,9 +36,12 @@ const statusColor = computed(() => {
   }
 })
 
-const isSelected = computed(() => store.selectedNodeId === props.id)
+const isSelected = computed(() => store.selectedNodeIds.includes(props.id))
 
-const isDeletable = computed(() => props.hasInput && props.hasOutput)
+const isDeletable = computed(() => {
+  const defs = getHandleDefs(props.nodeType)
+  return defs.targets.length > 0 && defs.sources.length > 0
+})
 
 function deleteNode() {
   store.removeNode(props.id)
@@ -43,12 +56,12 @@ const borderColor = computed(() => {
 // Output preview thumbnail
 const previewUrl = ref<string | null>(null)
 
-watch(() => state.value.output, async (output) => {
+watch(() => state.value.output?.asset, async (asset) => {
   if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
-  if (output?.bitmap) {
-    const canvas = new OffscreenCanvas(output.bitmap.width, output.bitmap.height)
+  if (asset?.bitmap) {
+    const canvas = new OffscreenCanvas(asset.bitmap.width, asset.bitmap.height)
     const ctx = canvas.getContext('2d')!
-    ctx.drawImage(output.bitmap, 0, 0)
+    ctx.drawImage(asset.bitmap, 0, 0)
     const blob = await canvas.convertToBlob({ type: 'image/png' })
     previewUrl.value = URL.createObjectURL(blob)
   } else {
@@ -86,16 +99,6 @@ onUnmounted(() => {
         v-if="icon"
         class="w-3.5 h-3.5 text-gray-500 flex-shrink-0"
       />
-      <button
-        v-if="isSelected && isDeletable"
-        class="nodrag w-4 h-4 flex items-center justify-center rounded hover:bg-red-500/30 text-gray-500 hover:text-red-400 transition-colors flex-shrink-0"
-        title="Delete node"
-        @click.stop="deleteNode"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3 h-3">
-          <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
-        </svg>
-      </button>
     </div>
 
     <!-- Output preview -->
@@ -130,19 +133,40 @@ onUnmounted(() => {
       />
     </div>
 
-    <!-- Handles -->
+    <!-- Target handles (left side) -->
     <Handle
-      v-if="hasInput"
-      id="input"
+      v-for="(handle, idx) in targetHandles"
+      :key="handle.id"
+      :id="handle.id"
       type="target"
       :position="Position.Left"
+      :style="{
+        top: handlePosition(idx, targetHandles.length),
+        borderRadius: handle.dataType === 'data' ? '2px' : '50%',
+        background: handle.dataType === 'data' ? '#f59e0b' : undefined,
+        transform: handle.dataType === 'data' ? 'translate(-50%, -50%) rotate(45deg)' : undefined,
+        width: handle.dataType === 'data' ? '8px' : undefined,
+        height: handle.dataType === 'data' ? '8px' : undefined,
+      }"
     />
+
+    <!-- Source handles (right side) -->
     <Handle
-      v-if="hasOutput"
-      id="output"
+      v-for="(handle, idx) in sourceHandles"
+      :key="handle.id"
+      :id="handle.id"
       type="source"
       :position="Position.Right"
+      :style="{
+        top: handlePosition(idx, sourceHandles.length),
+        borderRadius: handle.dataType === 'data' ? '2px' : '50%',
+        background: handle.dataType === 'data' ? '#f59e0b' : undefined,
+        transform: handle.dataType === 'data' ? 'translate(50%, -50%) rotate(45deg)' : undefined,
+        width: handle.dataType === 'data' ? '8px' : undefined,
+        height: handle.dataType === 'data' ? '8px' : undefined,
+      }"
     />
+
   </div>
 </template>
 

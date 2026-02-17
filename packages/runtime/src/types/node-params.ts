@@ -41,6 +41,13 @@ export interface FaceParseParams {
   device: 'webgpu' | 'wasm' | 'auto'
 }
 
+export interface SpritesheetParams {
+  columns: number | 'auto'
+  rows: number | 'auto'
+  gap: number
+  bgColor: string
+}
+
 export type NodeParamsMap = {
   'input': InputNodeParams
   'output': OutputNodeParams
@@ -50,6 +57,7 @@ export type NodeParamsMap = {
   'outline': OutlineParams
   'depth': DepthParams
   'face-parse': FaceParseParams
+  'spritesheet': SpritesheetParams
 }
 
 export const DEFAULT_PARAMS: NodeParamsMap = {
@@ -61,4 +69,5 @@ export const DEFAULT_PARAMS: NodeParamsMap = {
   'outline': { thickness: 4, color: '#ffffff', opacity: 1, quality: 'medium', position: 'outside', threshold: 0 },
   'depth': { model: 'fast', device: 'auto' },
   'face-parse': { device: 'auto' },
+  'spritesheet': { columns: 'auto', rows: 'auto', gap: 0, bgColor: 'transparent' },
 }
