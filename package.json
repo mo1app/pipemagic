@@ -9,7 +9,7 @@
     "build": "nuxt build",
     "dev": "nuxt dev",
     "dev:runtime": "yarn workspace pipemagic dev",
-    "dev:all": "concurrently --names runtime,app --prefix-colors cyan,magenta \"yarn workspace pipemagic dev\" \"nuxt dev\"",
+    "dev:all": "concurrently --names runtime,app,example --prefix-colors cyan,magenta,blue \"yarn workspace pipemagic dev\" \"nuxt dev\" \"yarn workspace pipemagic-example dev\"",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",

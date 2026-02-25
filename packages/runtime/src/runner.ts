@@ -70,9 +70,9 @@ export interface RunOptions {
 }
 
 export interface OutputEntry {
-  asset: Blob
-  width: number
-  height: number
+  asset?: Blob
+  width?: number
+  height?: number
   data?: unknown
 }
 
@@ -93,6 +93,10 @@ function migrateEdges(edges: EdgeDef[]): EdgeDef[] {
   }))
 }
 
+function isOutputNodeType(type: NodeType): boolean {
+  return type === 'output' || type === 'output-image' || type === 'output-data'
+}
+
 export async function runPipeline(
   pipeline: PipelineDefinition,
   inputImage: ImageBitmap | Map<string, ImageBitmap>,
@@ -102,6 +106,8 @@ export async function runPipeline(
   const { nodes } = pipeline
   const edges = migrateEdges(pipeline.edges)
   const { signal, onNodeProgress, onNodeStatus, onNodeStatusMessage, onNodeDownloadProgress } = options
+  const defaultInputNodeId = nodes.find(n => n.type === 'input' && n.isDefault)?.id
+    ?? nodes.find(n => n.type === 'input')?.id
 
   // Validate
   const errors = validatePipeline(nodes, edges)
@@ -176,11 +182,15 @@ export async function runPipeline(
       const upState = nodeStates.get(edge.source)
       if (!upState?.output) continue
 
-      const sourceOutput = upState.output[edge.sourceHandle] as ImageFrame | undefined
+      const sourceOutput = upState.output[edge.sourceHandle]
       if (!sourceOutput) continue
 
       const targetHandle = edge.targetHandle
       const handleDef = handleDefs.targets.find(h => h.id === targetHandle)
+
+      const sourceRevision = (typeof sourceOutput === 'object' && sourceOutput && 'revision' in (sourceOutput as Record<string, unknown>))
+        ? Number((sourceOutput as Record<string, unknown>).revision)
+        : 0
 
       if (handleDef?.multi) {
         // Accumulate into array
@@ -188,11 +198,11 @@ export async function runPipeline(
           inputs[targetHandle] = []
           inputRevisions[targetHandle] = []
         }
-        ;(inputs[targetHandle] as ImageFrame[]).push(sourceOutput)
-        ;(inputRevisions[targetHandle] as number[]).push(sourceOutput.revision)
+        ;(inputs[targetHandle] as ImageFrame[]).push(sourceOutput as ImageFrame)
+        ;(inputRevisions[targetHandle] as number[]).push(sourceRevision)
       } else {
-        inputs[targetHandle] = sourceOutput
-        inputRevisions[targetHandle] = [sourceOutput.revision]
+        inputs[targetHandle] = sourceOutput as ImageFrame
+        inputRevisions[targetHandle] = [sourceRevision]
       }
     }
 
@@ -202,7 +212,7 @@ export async function runPipeline(
     if (existingState.cacheKey === cacheKey && existingState.output) {
       updateState(nodeId, { status: 'cached' })
       onNodeStatus?.(nodeId, 'cached')
-      if (nodeType === 'output') outputNodeIds.push(nodeId)
+      if (isOutputNodeType(nodeType)) outputNodeIds.push(nodeId)
       continue
     }
 
@@ -214,22 +224,37 @@ export async function runPipeline(
       let output: NodeOutput
 
       if (nodeType === 'input') {
-        // Look up input image by label, then by id, then default
+        // Look up input image by label, then by id, then default for the default input node
         const label = node.label || node.id
-        let bitmap = inputMap.get(label) ?? inputMap.get(node.id) ?? inputMap.get('__default__')
-        if (!bitmap) throw new Error(`No input image for "${label}"`)
-
-        const maxSize = (params.maxSize as number) || 2048
-        const fit = (params.fit as 'contain' | 'cover' | 'fill') || 'contain'
-        const resized = await resizeBitmap(bitmap, maxSize, fit)
-        output = { asset: createFrame(resized) }
-      } else if (nodeType === 'output') {
-        const assetInput = inputs.asset as ImageFrame | undefined
-        if (!assetInput) throw new Error('No input to output node')
-        output = { asset: assetInput }
-        // Pass through data handle if connected
+        let bitmap = inputMap.get(label) ?? inputMap.get(node.id)
+        if (!bitmap && node.id === defaultInputNodeId) {
+          bitmap = inputMap.get('__default__')
+        }
+        if (!bitmap) {
+          const isConnected = edges.some((e) => e.source === nodeId)
+          if (!isConnected) {
+            output = {}
+          } else {
+            throw new Error(`No input image for "${label}"`)
+          }
+        } else {
+          if (!(bitmap instanceof ImageBitmap)) {
+            throw new Error(`runner: input "${label}" bitmap is ${Object.prototype.toString.call(bitmap)}, not ImageBitmap`)
+          }
+          const maxSize = (params.maxSize as number) || 2048
+          const fit = (params.fit as 'contain' | 'cover' | 'fill') || 'contain'
+          const resized = await resizeBitmap(bitmap, maxSize, fit)
+          output = { asset: createFrame(resized) }
+        }
+      } else if (nodeType === 'output' || nodeType === 'output-image') {
+        const firstInput = Object.values(inputs)[0] as ImageFrame | undefined
+        if (!firstInput) throw new Error('No input to output node')
+        output = { asset: firstInput }
+        outputNodeIds.push(nodeId)
+      } else if (nodeType === 'output-data') {
         const dataInput = inputs.data
-        if (dataInput) output.data = dataInput
+        if (dataInput === undefined) throw new Error('No data input to output node')
+        output = { data: dataInput }
         outputNodeIds.push(nodeId)
       } else {
         const executor = executors[nodeType]
@@ -280,24 +305,33 @@ export async function runPipeline(
     const outState = nodeStates.get(outId)
     if (!outState?.output) continue
 
-    const format = (outNode.params?.format as 'png' | 'jpeg' | 'webp') || 'png'
-    const quality = (outNode.params?.quality as number) ?? 0.92
-    const assetFrame = outState.output.asset
-    const blob = await bitmapToBlob(assetFrame.bitmap, format, quality)
-
     const label = outNode.label || outNode.id
-    outputs[label] = {
-      asset: blob,
-      width: assetFrame.width,
-      height: assetFrame.height,
-      data: outState.output.data,
+    if (outNode.type === 'output-data') {
+      outputs[label] = { data: outState.output.data }
+    } else {
+      const format = (outNode.params?.format as 'png' | 'jpeg' | 'webp') || 'png'
+      const quality = (outNode.params?.quality as number) ?? 0.92
+      const assetFrame = outState.output.asset
+      if (!assetFrame) continue
+      const blob = await bitmapToBlob(assetFrame.bitmap, format, quality)
+      outputs[label] = {
+        asset: blob,
+        width: assetFrame.width,
+        height: assetFrame.height,
+        data: outState.output.data,
+      }
     }
   }
 
   // Primary output: first output node
-  const primaryOutputId = outputNodeIds[0]
+  const imageOutputIds = outputNodeIds.filter(id => {
+    const type = nodes.find(n => n.id === id)?.type
+    return type === 'output' || type === 'output-image'
+  })
+  const defaultOutputId = imageOutputIds.find(id => nodes.find(n => n.id === id)?.isDefault)
+  const primaryOutputId = defaultOutputId ?? imageOutputIds[0]
   const primaryState = primaryOutputId ? nodeStates.get(primaryOutputId) : null
-  if (!primaryState?.output) {
+  if (!primaryState?.output?.asset) {
     throw new Error('Pipeline produced no output')
   }
 
