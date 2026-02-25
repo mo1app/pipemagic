@@ -48,7 +48,7 @@ console.log(result.width)  // output width
 console.log(result.height) // output height
 `
 
-const stickerPipeline: PipelineDefinition = {
+export const stickerPipeline: PipelineDefinition = {
   version: 1,
   nodes: [
     { id: 'input', type: 'input', position: { x: 0, y: 0 }, params: { maxSize: 2048, fit: 'contain' } },

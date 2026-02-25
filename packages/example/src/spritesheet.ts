@@ -53,7 +53,7 @@ const dataOut = result.outputs['Data Output']
 console.log(dataOut.data)  // { frames: [...], width, height }
 `
 
-const spritesheetPipeline: PipelineDefinition = {
+export const spritesheetPipeline: PipelineDefinition = {
   version: 2,
   nodes: [
     { id: '2vk1RDGz', type: 'input', position: { x: 100, y: 140 }, params: { maxSize: 2048, fit: 'contain' }, label: 'Image Input', isDefault: true },

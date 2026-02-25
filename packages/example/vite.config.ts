@@ -7,6 +7,14 @@ export default defineConfig({
       'Cross-Origin-Embedder-Policy': 'require-corp',
       'Cross-Origin-Opener-Policy': 'same-origin',
     },
+    proxy: {
+      '/editor': {
+        target: 'http://localhost:3003',
+        changeOrigin: true,
+        ws: true,
+        rewrite: (path) => path.replace(/^\/editor/, ''),
+      },
+    },
   },
   optimizeDeps: {
     exclude: ['pipemagic'],
