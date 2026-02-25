@@ -1,73 +1,67 @@
-import tailwindcss from '@tailwindcss/vite'
+import tailwindcss from "@tailwindcss/vite";
 
-const baseURL = process.env.NUXT_APP_BASE_URL || '/'
+const baseURL = process.env.NUXT_APP_BASE_URL || "/";
 
 export default defineNuxtConfig({
-  compatibilityDate: '2025-01-01',
+  compatibilityDate: "2025-01-01",
   ssr: false,
-  srcDir: 'app/',
-
+  srcDir: "app/",
+  debug: false,
   devServer: {
     port: 3003,
   },
 
-  modules: [
-    '@pinia/nuxt',
-    '@nuxtjs/plausible',
-  ],
+  modules: ["@pinia/nuxt", "@nuxtjs/plausible"],
 
   plausible: {
     enabled: false,
   },
 
-  css: [
-    '~/assets/css/main.css',
-  ],
+  css: ["~/assets/css/main.css"],
 
   app: {
     baseURL,
     head: {
-      title: 'PipeMagic',
+      title: "PipeMagic",
       meta: [
-        { charset: 'utf-8' },
-        { name: 'viewport', content: 'width=device-width, initial-scale=1' },
+        { charset: "utf-8" },
+        { name: "viewport", content: "width=device-width, initial-scale=1" },
       ],
       link: [
-        { rel: 'icon', type: 'image/svg+xml', href: `${baseURL}favicon.svg` },
+        { rel: "icon", type: "image/svg+xml", href: `${baseURL}favicon.svg` },
       ],
-      script: [
-        { src: `${baseURL}coi-serviceworker.min.js` },
-      ],
+      script: [{ src: `${baseURL}coi-serviceworker.min.js` }],
     },
     spaLoadingTemplate: true,
   },
 
   vite: {
-    plugins: [
-      tailwindcss(),
-    ],
+    plugins: [tailwindcss()],
     worker: {
-      format: 'es',
+      format: "es",
+    },
+    optimizeDeps: {
+      exclude: ["pipemagic"],
     },
   },
 
   routeRules: {
-    '/**': {
+    "/**": {
       headers: {
-        'Cross-Origin-Embedder-Policy': 'require-corp',
-        'Cross-Origin-Opener-Policy': 'same-origin',
+        "Cross-Origin-Embedder-Policy": "require-corp",
+        "Cross-Origin-Opener-Policy": "same-origin",
       },
     },
   },
 
   nitro: {
     routeRules: {
-      '/**': {
+      "/**": {
         headers: {
-          'Cross-Origin-Embedder-Policy': 'require-corp',
-          'Cross-Origin-Opener-Policy': 'same-origin',
+          "Cross-Origin-Embedder-Policy": "require-corp",
+          "Cross-Origin-Opener-Policy": "same-origin",
         },
       },
     },
   },
-})
+});

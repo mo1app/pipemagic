@@ -5,14 +5,8 @@ import {
   FolderOpenIcon,
   ArrowDownTrayIcon,
   DocumentDuplicateIcon,
-  PhotoIcon,
-  ScissorsIcon,
-  ArrowsPointingInIcon,
-  ArrowsPointingOutIcon,
-  PaintBrushIcon,
   SparklesIcon,
   EyeIcon,
-  UserIcon,
   Squares2X2Icon,
 } from "@heroicons/vue/20/solid";
 import type { NodeType } from "~~/shared/types/pipeline";
@@ -22,6 +16,7 @@ import { usePipelineRunner } from "~/composables/usePipelineRunner";
 import { DEFAULT_PARAMS } from "~~/shared/types/node-params";
 import type { PipelineDefinition } from "~~/shared/types/pipeline";
 import type { MenuItem } from "~/components/DropdownMenu.vue";
+import { ADDABLE_NODES } from "~/constants/addableNodes";
 
 const emit = defineEmits<{ "toggle-about": [] }>();
 
@@ -122,10 +117,10 @@ function buildStickerPreset(): PipelineDefinition {
       },
       {
         id: outputId,
-        type: "output",
+        type: "output-image",
         position: { x: 1500, y: 180 },
-        params: { ...DEFAULT_PARAMS["output"] },
-        label: "Output",
+        params: { ...DEFAULT_PARAMS["output-image"] },
+        label: "Image Output",
       },
     ],
     edges: [
@@ -225,10 +220,10 @@ function buildDepthMapPreset(): PipelineDefinition {
       },
       {
         id: outputId,
-        type: "output",
+        type: "output-image",
         position: { x: 680, y: 160 },
-        params: { ...DEFAULT_PARAMS["output"] },
-        label: "Output",
+        params: { ...DEFAULT_PARAMS["output-image"] },
+        label: "Image Output",
       },
     ],
     edges: [
@@ -250,6 +245,114 @@ function buildDepthMapPreset(): PipelineDefinition {
   };
 }
 
+function buildSpritesheetPreset(): PipelineDefinition {
+  return {
+    version: 2,
+    nodes: [
+      {
+        id: "2vk1RDGz",
+        type: "input",
+        position: { x: 100, y: 140 },
+        params: { maxSize: 2048, fit: "contain" },
+        label: "Image Input",
+        isDefault: true,
+      },
+      {
+        id: "Shel0Vgs",
+        type: "output-image",
+        position: { x: 820, y: 180 },
+        params: { format: "png", quality: 0.92 },
+        label: "Output",
+        isDefault: true,
+      },
+      {
+        id: "_Btx5Clj",
+        type: "output-data",
+        position: { x: 820, y: 520 },
+        params: {},
+        label: "Data Output",
+        isDefault: false,
+      },
+      {
+        id: "H_PNvlk-",
+        type: "spritesheet",
+        position: { x: 420, y: 280 },
+        params: { columns: "auto", rows: "auto", gap: 0, bgColor: "transparent" },
+        label: "Spritesheet",
+        isDefault: false,
+      },
+      {
+        id: "-5RLWAiz",
+        type: "input",
+        position: { x: -160, y: 420 },
+        params: { maxSize: 2048, fit: "contain" },
+        label: "Image Input 2",
+        isDefault: false,
+      },
+      {
+        id: "FjaM2Brl",
+        type: "input",
+        position: { x: 80, y: 560 },
+        params: { maxSize: 2048, fit: "contain" },
+        label: "Image Input 3",
+        isDefault: false,
+      },
+      {
+        id: "OoA-nfuE",
+        type: "input",
+        position: { x: -160, y: 860 },
+        params: { maxSize: 2048, fit: "contain" },
+        label: "Image Input 4",
+        isDefault: false,
+      },
+    ],
+    edges: [
+      {
+        id: "Nq757rLk",
+        source: "2vk1RDGz",
+        sourceHandle: "asset",
+        target: "H_PNvlk-",
+        targetHandle: "images",
+      },
+      {
+        id: "YbvYnK0s",
+        source: "H_PNvlk-",
+        sourceHandle: "asset",
+        target: "Shel0Vgs",
+        targetHandle: "asset",
+      },
+      {
+        id: "rd3lap_o",
+        source: "H_PNvlk-",
+        sourceHandle: "data",
+        target: "_Btx5Clj",
+        targetHandle: "data",
+      },
+      {
+        id: "j1G5E-RA",
+        source: "-5RLWAiz",
+        sourceHandle: "asset",
+        target: "H_PNvlk-",
+        targetHandle: "images",
+      },
+      {
+        id: "e8RC0exZ",
+        source: "FjaM2Brl",
+        sourceHandle: "asset",
+        target: "H_PNvlk-",
+        targetHandle: "images",
+      },
+      {
+        id: "B4rH9Ck2",
+        source: "OoA-nfuE",
+        sourceHandle: "asset",
+        target: "H_PNvlk-",
+        targetHandle: "images",
+      },
+    ],
+  };
+}
+
 const presetMenuItems = computed<MenuItem[]>(() => [
   {
     label: "Sticker",
@@ -260,6 +363,11 @@ const presetMenuItems = computed<MenuItem[]>(() => [
     label: "Depth Map",
     icon: EyeIcon,
     action: () => loadPreset(buildDepthMapPreset),
+  },
+  {
+    label: "Spritesheet",
+    icon: Squares2X2Icon,
+    action: () => loadPreset(buildSpritesheetPreset),
   },
 ]);
 
@@ -274,54 +382,18 @@ function addNodeAtCenter(type: NodeType) {
   store.addNode(type, { x: maxX + 300, y: maxY });
 }
 
-const addNodeItems = computed<MenuItem[]>(() => [
-  {
-    label: "Image Input",
-    icon: PhotoIcon,
-    action: () => addNodeAtCenter("input"),
-  },
-  {
-    label: "Output",
-    icon: ArrowDownTrayIcon,
-    action: () => addNodeAtCenter("output"),
-  },
-  { separator: true, label: "" },
-  {
-    label: "Remove BG",
-    icon: ScissorsIcon,
-    action: () => addNodeAtCenter("remove-bg"),
-  },
-  {
-    label: "Normalize",
-    icon: ArrowsPointingInIcon,
-    action: () => addNodeAtCenter("normalize"),
-  },
-  {
-    label: "Outline",
-    icon: PaintBrushIcon,
-    action: () => addNodeAtCenter("outline"),
-  },
-  {
-    label: "Upscale 2x",
-    icon: ArrowsPointingOutIcon,
-    action: () => addNodeAtCenter("upscale"),
-  },
-  {
-    label: "Estimate Depth",
-    icon: EyeIcon,
-    action: () => addNodeAtCenter("depth"),
-  },
-  {
-    label: "Face Parse",
-    icon: UserIcon,
-    action: () => addNodeAtCenter("face-parse"),
-  },
-  {
-    label: "Spritesheet",
-    icon: Squares2X2Icon,
-    action: () => addNodeAtCenter("spritesheet"),
-  },
-]);
+const addNodeItems = computed<MenuItem[]>(() =>
+  ADDABLE_NODES.flatMap((item) => {
+    const menuItem: MenuItem = {
+      label: item.label,
+      icon: item.icon,
+      action: () => addNodeAtCenter(item.type),
+    };
+    return item.separator
+      ? [{ separator: true, label: "" } as MenuItem, menuItem]
+      : [menuItem];
+  }),
+);
 
 function handleKeyboard(e: KeyboardEvent) {
   const mod = e.metaKey || e.ctrlKey;

@@ -8,4 +8,7 @@ export default defineConfig({
       'Cross-Origin-Opener-Policy': 'same-origin',
     },
   },
+  optimizeDeps: {
+    exclude: ['pipemagic'],
+  },
 })

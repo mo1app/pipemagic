@@ -1,3 +1,4 @@
+import { toRaw } from 'vue'
 import { usePipelineStore } from '~/stores/pipeline'
 import {
   initGpu,
@@ -80,9 +81,11 @@ export function usePipelineRunner() {
       return
     }
 
-    // Check input images
+    // Check input images (only required for connected input nodes)
     const inputNodes = store.nodes.filter((n: any) => n.type === 'input')
     for (const inputNode of inputNodes) {
+      const isConnected = store.edges.some((e: any) => e.source === inputNode.id)
+      if (!isConnected) continue
       if (!store.inputImages.has(inputNode.id)) {
         runError.value = 'Please add an image to the Input node before running.'
         return
@@ -150,22 +153,26 @@ export function usePipelineRunner() {
           const upState = store.getNodeState(edge.source)
           if (!upState.output) continue
 
-          const sourceOutput = upState.output[edge.sourceHandle] as ImageFrame | undefined
+          const rawOutput = toRaw(upState.output)
+          const sourceOutput = toRaw(rawOutput[edge.sourceHandle])
           if (!sourceOutput) continue
 
           const targetHandle = edge.targetHandle
           const handleDef = handleDefs.targets.find(h => h.id === targetHandle)
+          const sourceRevision = (typeof sourceOutput === 'object' && sourceOutput && 'revision' in (sourceOutput as Record<string, unknown>))
+            ? Number((sourceOutput as Record<string, unknown>).revision)
+            : 0
 
           if (handleDef?.multi) {
             if (!inputs[targetHandle]) {
               inputs[targetHandle] = []
               inputRevisions[targetHandle] = []
             }
-            ;(inputs[targetHandle] as ImageFrame[]).push(sourceOutput)
-            ;(inputRevisions[targetHandle] as number[]).push(sourceOutput.revision)
+            ;(inputs[targetHandle] as ImageFrame[]).push(sourceOutput as ImageFrame)
+            ;(inputRevisions[targetHandle] as number[]).push(sourceRevision)
           } else {
-            inputs[targetHandle] = sourceOutput
-            inputRevisions[targetHandle] = [sourceOutput.revision]
+            inputs[targetHandle] = sourceOutput as ImageFrame
+            inputRevisions[targetHandle] = [sourceRevision]
           }
         }
 
@@ -184,19 +191,34 @@ export function usePipelineRunner() {
           let output: NodeOutput
 
           if (nodeType === 'input') {
-            // Input node: just pass through the stored image
             const frame = store.inputImages.get(nodeId)
-            if (!frame) throw new Error('No input image')
+            if (!frame) {
+              const isConnected = edgeDefs.some((e) => e.source === nodeId)
+              if (!isConnected) {
+                output = {}
+                store.updateNodeState(nodeId, { cacheKey: null })
+              } else {
+                throw new Error('No input image')
+              }
+            } else {
+            const rawBitmap = toRaw(frame.bitmap) as ImageBitmap
+            if (!(rawBitmap instanceof ImageBitmap)) {
+              throw new Error(`Input node "${nodeId}": bitmap is ${Object.prototype.toString.call(rawBitmap)}, not ImageBitmap`)
+            }
             const maxSize = (params.maxSize as number) || 2048
             const fit = (params.fit as 'contain' | 'cover' | 'fill') || 'contain'
-            const resized = await resizeBitmap(frame.bitmap, maxSize, fit)
+            const resized = await resizeBitmap(rawBitmap, maxSize, fit)
             output = { asset: createFrame(resized) }
-          } else if (nodeType === 'output') {
+            }
+          } else if (nodeType === 'output' || nodeType === 'output-image') {
             // Output node: pass through inputs
-            const assetInput = inputs.asset as ImageFrame | undefined
-            if (!assetInput) throw new Error('No input to output node')
-            output = { asset: assetInput }
-            if (inputs.data) output.data = inputs.data
+            const firstInput = Object.values(inputs)[0] as ImageFrame | undefined
+            if (!firstInput) throw new Error('No input to output node')
+            output = { asset: firstInput }
+          } else if (nodeType === 'output-data') {
+            const dataInput = inputs.data
+            if (dataInput === undefined) throw new Error('No data input to output node')
+            output = { data: dataInput }
           } else {
             // Processing node
             const executor = executors[nodeType]
