@@ -11,10 +11,21 @@ const anyPanelDragging = computed(() =>
   || rightPanel.value?.isDragging.value
 )
 
+const onPipelineMessage = (e: MessageEvent) => {
+  if (e.data?.type === 'load-pipeline' && e.data.pipeline) {
+    store.loadPipeline(e.data.pipeline)
+  }
+}
+
 onMounted(() => {
+  window.addEventListener('message', onPipelineMessage)
   if (!store.restoreFromStorage()) {
     store.loadDefaultPipeline()
   }
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('message', onPipelineMessage)
 })
 </script>
 

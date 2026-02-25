@@ -24,6 +24,9 @@ export async function resizeBitmap(
   maxSize: number,
   fit: 'contain' | 'cover' | 'fill' = 'contain',
 ): Promise<ImageBitmap> {
+  if (!(bitmap instanceof ImageBitmap)) {
+    throw new Error(`resizeBitmap: expected ImageBitmap, got ${Object.prototype.toString.call(bitmap)}`)
+  }
   let { width, height } = bitmap
   if (width <= maxSize && height <= maxSize) return bitmap
 
@@ -56,6 +59,9 @@ export async function bitmapToBlob(
 
 /** Load an image file into an ImageBitmap. */
 export async function fileToBitmap(file: File): Promise<ImageBitmap> {
+  if (!(file instanceof Blob)) {
+    throw new Error(`fileToBitmap: expected File/Blob, got ${Object.prototype.toString.call(file)}`)
+  }
   return createImageBitmap(file)
 }
 

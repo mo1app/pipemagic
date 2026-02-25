@@ -3,6 +3,10 @@ import type { RunOptions, RunResult } from './runner'
 import { runPipeline } from './runner'
 import { initGpu, getGpuDevice } from './utils/gpu'
 
+function isBitmapLike(value: unknown): value is Blob | File | ImageBitmap {
+  return value instanceof Blob || value instanceof File || value instanceof ImageBitmap
+}
+
 export class PipeMagic {
   private gpuInitialized = false
 
@@ -18,7 +22,7 @@ export class PipeMagic {
     }
 
     // Convert input(s) to ImageBitmap
-    if (inputImage instanceof Blob || inputImage instanceof File || inputImage instanceof ImageBitmap) {
+    if (isBitmapLike(inputImage)) {
       // Single input (backward-compat)
       const bitmap = inputImage instanceof ImageBitmap
         ? inputImage
@@ -28,6 +32,9 @@ export class PipeMagic {
       // Multi-input: Record<string, Blob | File | ImageBitmap>
       const bitmapMap = new Map<string, ImageBitmap>()
       for (const [key, value] of Object.entries(inputImage)) {
+        if (!isBitmapLike(value)) {
+          throw new Error(`Invalid input for "${key}": expected Blob, File, or ImageBitmap`)
+        }
         const bitmap = value instanceof ImageBitmap
           ? value
           : await createImageBitmap(value)

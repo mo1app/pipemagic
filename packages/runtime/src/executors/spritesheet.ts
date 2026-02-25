@@ -85,6 +85,9 @@ export async function executeSpritesheet(
     if (ctx.abortSignal.aborted) throw new DOMException('Aborted', 'AbortError')
 
     const frame = frames[i]
+    if (!frame?.bitmap || !(frame.bitmap instanceof ImageBitmap)) {
+      throw new Error(`spritesheet: frame ${i} has invalid bitmap (${Object.prototype.toString.call(frame?.bitmap)})`)
+    }
     const col = i % columns
     const row = Math.floor(i / columns)
 

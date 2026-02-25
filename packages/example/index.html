@@ -3,8 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PipeMagic Example – Sticker Pipeline</title>
+  <title>PipeMagic Examples</title>
   <script src="coi-serviceworker.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/atom-one-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/typescript.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -12,93 +15,115 @@
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: #0f0f0f;
       color: #e0e0e0;
-      min-height: 100vh;
+      height: 100vh;
       display: flex;
       flex-direction: column;
-      align-items: center;
-      padding: 2rem;
+      overflow: hidden;
     }
 
-    h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
-    p.subtitle { color: #888; margin-bottom: 2rem; font-size: 0.9rem; }
-
-    #drop-zone {
-      width: 100%;
-      max-width: 480px;
-      aspect-ratio: 1;
-      border: 2px dashed #444;
-      border-radius: 12px;
+    /* ---- Header ---- */
+    .header {
       display: flex;
-      flex-direction: column;
       align-items: center;
-      justify-content: center;
+      gap: 1.25rem;
+      padding: 0.75rem 1.5rem;
+      border-bottom: 1px solid #1e1e1e;
+      flex-shrink: 0;
+    }
+    .header h1 { font-size: 1.1rem; white-space: nowrap; }
+
+    .tab-bar {
+      display: flex;
+      gap: 2px;
+      background: #1a1a1a;
+      border-radius: 8px;
+      padding: 3px;
+    }
+    .tab-btn {
+      padding: 0.35rem 1rem;
+      background: transparent;
+      color: #888;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.8rem;
       cursor: pointer;
-      transition: border-color 0.2s, background 0.2s;
-      position: relative;
-      overflow: hidden;
+      transition: background 0.15s, color 0.15s;
     }
-    #drop-zone:hover, #drop-zone.dragover {
-      border-color: #7c3aed;
-      background: rgba(124, 58, 237, 0.05);
-    }
-    #drop-zone.has-image { border-style: solid; border-color: #333; cursor: default; }
-    #drop-zone img {
-      max-width: 100%;
-      max-height: 100%;
-      object-fit: contain;
-    }
-    .drop-label { color: #666; font-size: 0.95rem; pointer-events: none; }
+    .tab-btn:hover { color: #ccc; }
+    .tab-btn.active { background: #2a2a2a; color: #fff; }
 
-    #progress-area {
-      width: 100%;
-      max-width: 480px;
-      margin-top: 1.5rem;
-      display: none;
-    }
-    #progress-area.active { display: block; }
-
-    .node-row {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      padding: 0.4rem 0;
-      font-size: 0.85rem;
-    }
-    .node-name { width: 100px; color: #aaa; }
-    .node-bar-wrap {
+    /* ---- Split layout ---- */
+    .split {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
       flex: 1;
-      height: 6px;
-      background: #222;
-      border-radius: 3px;
       overflow: hidden;
     }
-    .node-bar {
-      height: 100%;
-      background: #7c3aed;
-      border-radius: 3px;
-      width: 0%;
-      transition: width 0.15s;
+    .pane-demo {
+      overflow-y: auto;
+      padding: 1.5rem 2rem 3rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
     }
+    .pane-right {
+      display: flex;
+      flex-direction: column;
+      border-left: 1px solid #1e1e1e;
+      overflow: hidden;
+      background: #1a1a1d;
+    }
+    .pane-editor {
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+      background: #111114;
+    }
+    .pane-editor iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      display: block;
+    }
+    .pane-code {
+      flex: 1;
+      min-height: 0;
+      border-top: 1px solid #1e1e1e;
+      overflow-y: auto;
+      background: #1a1a1d;
+    }
+    .pane-code pre {
+      margin: 0;
+      padding: 1.25rem 1.5rem;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    .pane-code code.hljs {
+      background: transparent;
+      padding: 0;
+    }
+
+    .tab-panel { display: none; width: 100%; flex-direction: column; align-items: center; }
+    .tab-panel.active { display: flex; }
+
+    /* ---- Shared ---- */
+    .subtitle { color: #888; margin-bottom: 1.5rem; font-size: 0.9rem; text-align: center; max-width: 700px; }
+
+    .progress-area { width: 100%; max-width: 520px; margin-top: 1rem; display: none; }
+    .progress-area.active { display: block; }
+    .node-row { display: flex; align-items: center; gap: 0.75rem; padding: 0.4rem 0; font-size: 0.85rem; }
+    .node-name { width: 110px; color: #aaa; }
+    .node-bar-wrap { flex: 1; height: 6px; background: #222; border-radius: 3px; overflow: hidden; }
+    .node-bar { height: 100%; background: #7c3aed; border-radius: 3px; width: 0%; transition: width 0.15s; }
     .node-bar.done { background: #22c55e; }
     .node-bar.error { background: #ef4444; }
     .node-status { width: 60px; text-align: right; font-size: 0.75rem; color: #666; }
-    .node-message { font-size: 0.75rem; color: #888; margin-left: 100px; margin-top: -0.2rem; }
+    .node-message { font-size: 0.75rem; color: #888; margin-left: 110px; margin-top: -0.2rem; }
 
-    #result-area {
-      width: 100%;
-      max-width: 480px;
-      margin-top: 1.5rem;
-      display: none;
-    }
-    #result-area.active { display: block; }
-    #result-area h2 { font-size: 1rem; margin-bottom: 0.75rem; }
-    #result-area img {
-      max-width: 100%;
-      border-radius: 8px;
-      background: repeating-conic-gradient(#222 0% 25%, #1a1a1a 0% 50%) 50% / 16px 16px;
-    }
-    #download-btn {
-      margin-top: 0.75rem;
+    .error-msg { color: #ef4444; font-size: 0.85rem; margin-top: 1rem; display: none; }
+    .error-msg.active { display: block; }
+
+    .btn-primary {
       padding: 0.5rem 1.25rem;
       background: #7c3aed;
       color: white;
@@ -107,36 +132,75 @@
       cursor: pointer;
       font-size: 0.85rem;
     }
-    #download-btn:hover { background: #6d28d9; }
+    .btn-primary:hover { background: #6d28d9; }
 
-    #error-msg {
-      color: #ef4444;
-      font-size: 0.85rem;
-      margin-top: 1rem;
-      display: none;
+    .result-img {
+      max-width: 100%;
+      border-radius: 8px;
+      background: repeating-conic-gradient(#222 0% 25%, #1a1a1a 0% 50%) 50% / 16px 16px;
     }
-    #error-msg.active { display: block; }
+
+    /* ---- Sticker ---- */
+    .drop-zone {
+      width: 100%; max-width: 400px; aspect-ratio: 1;
+      border: 2px dashed #444; border-radius: 12px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      cursor: pointer; transition: border-color 0.2s, background 0.2s;
+      position: relative; overflow: hidden;
+    }
+    .drop-zone:hover, .drop-zone.dragover { border-color: #7c3aed; background: rgba(124,58,237,0.05); }
+    .drop-zone.has-image { border-style: solid; border-color: #333; cursor: default; }
+    .drop-zone img { max-width: 100%; max-height: 100%; object-fit: contain; }
+    .drop-label { color: #666; font-size: 0.95rem; pointer-events: none; }
+
+    .sticker-result { width: 100%; max-width: 400px; margin-top: 1.5rem; display: none; }
+    .sticker-result.active { display: block; }
+    .sticker-result h2 { font-size: 1rem; margin-bottom: 0.75rem; }
+
+    /* ---- Spritesheet ---- */
+    .slots {
+      width: 100%; max-width: 440px;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+    }
+    .slot {
+      height: 120px; border: 2px dashed #444; border-radius: 10px;
+      background: #121212; display: flex; align-items: center; justify-content: center;
+      cursor: pointer; transition: border-color 0.2s, background 0.2s;
+      overflow: hidden; position: relative;
+    }
+    .slot:hover, .slot.dragover { border-color: #7c3aed; background: rgba(124,58,237,0.08); }
+    .slot img { width: 100%; height: 100%; object-fit: contain; background: repeating-conic-gradient(#202020 0% 25%, #181818 0% 50%) 50% / 12px 12px; }
+    .slot-label { color: #686868; font-size: 12px; text-align: center; line-height: 1.4; padding: 8px; }
+
+    .sprite-result { width: 100%; max-width: 600px; margin-top: 1.5rem; display: none; }
+    .sprite-result.active { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .panel { border: 1px solid #2a2a2a; border-radius: 10px; padding: 10px; background: #151515; }
+    .panel h2 { font-size: 0.95rem; margin-bottom: 0.6rem; }
+    .data-json { font-size: 11px; color: #a3a3a3; white-space: pre-wrap; max-height: 260px; overflow: auto; }
   </style>
 </head>
 <body>
-  <h1>PipeMagic Sticker Pipeline</h1>
-  <p class="subtitle">Drop an image to run: Remove BG &rarr; Normalize &rarr; Outline &rarr; Upscale 2x</p>
-
-  <div id="drop-zone">
-    <span class="drop-label">Drop image here or click to select</span>
+  <div class="header">
+    <h1>PipeMagic Examples</h1>
+    <div class="tab-bar">
+      <button class="tab-btn active" data-tab="sticker">Sticker</button>
+      <button class="tab-btn" data-tab="spritesheet">Spritesheet</button>
+    </div>
   </div>
 
-  <input type="file" id="file-input" accept="image/*" hidden>
-
-  <div id="progress-area"></div>
-
-  <div id="error-msg"></div>
-
-  <div id="result-area">
-    <h2>Result</h2>
-    <img id="result-img" alt="Pipeline result">
-    <br>
-    <button id="download-btn">Download PNG</button>
+  <div class="split">
+    <div class="pane-demo">
+      <div class="tab-panel active" id="panel-sticker"></div>
+      <div class="tab-panel" id="panel-spritesheet"></div>
+    </div>
+    <div class="pane-right">
+      <div class="pane-editor">
+        <iframe id="editor-frame" src="" allow="cross-origin-isolated"></iframe>
+      </div>
+      <div class="pane-code">
+        <pre><code id="code-block" class="language-typescript"></code></pre>
+      </div>
+    </div>
   </div>
 
   <script type="module" src="/src/main.ts"></script>
